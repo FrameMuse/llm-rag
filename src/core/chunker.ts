@@ -23,6 +23,14 @@ export const SUPPORTED_EXTENSIONS = new Set([
   ".yaml", ".yml", ".toml", ".html", ".htm",
 ])
 
+const IGNORE_DIRS = new Set([
+  "node_modules", ".git", ".svn", ".hg",
+  "build", "dist", "out", "target",
+  "benchmarks", "benchmark", "benchs",
+  "coverage", ".nyc_output",
+  ".next", ".nuxt", ".cache",
+])
+
 // ── helpers ──────────────────────────────────────────
 
 function estimateTokens(text: string): number {
@@ -59,7 +67,7 @@ export function walkFiles(projectDir: string, pattern: string): string[] {
     for (const entry of entries) {
       const fullPath = join(dir, entry.name)
       if (entry.isDirectory()) {
-        if (entry.name.startsWith(".") || entry.name === "node_modules") continue
+        if (entry.name.startsWith(".") || IGNORE_DIRS.has(entry.name)) continue
         walk(fullPath)
       } else {
         const ext = extname(entry.name).toLowerCase()
@@ -163,7 +171,22 @@ export function chunkTsFile(filePath: string, collection: string, projectDir: st
   const chunks: Chunk[] = []
   const decls: { heading: string; start: number; end: number }[] = []
   let importsText = ""
-  let importsEnd = 0
+  let pendingImport: string[] = []
+
+  function flushImports() {
+    if (pendingImport.length === 0) return
+    const text = pendingImport.join("\n")
+    if (text.length > 100) {
+      chunks.push({
+        id: chunkId(relPath, "__imports__"),
+        collection, filePath: relPath,
+        heading: "__imports__", parentHeading: null,
+        content: text,
+        tokens: estimateTokens(text),
+      })
+    }
+    pendingImport = []
+  }
 
   function visit(node: ts.Node) {
     if (node.kind === ts.SyntaxKind.EndOfFileToken) return
@@ -174,38 +197,39 @@ export function chunkTsFile(filePath: string, collection: string, projectDir: st
       (ts.isExportDeclaration(node) && node.moduleSpecifier)
 
     if (isImport) {
-      importsText += node.getText(sourceFile) + "\n"
-      importsEnd = node.end
+      pendingImport.push(node.getText(sourceFile))
       return
     }
 
+    flushImports()
+
     const name = declName(node, sourceFile)
+    const start = node.getStart(sourceFile)
+    const end = node.end
+
     if (name) {
-      decls.push({ heading: name, start: node.pos, end: node.end })
+      decls.push({ heading: name, start, end })
     } else if (ts.isVariableStatement(node)) {
       const first = node.declarationList.declarations[0]
       const varName = first?.name && ts.isIdentifier(first.name) ? first.name.text : "variable"
-      decls.push({ heading: varName, start: node.pos, end: node.end })
+      decls.push({ heading: varName, start, end })
     } else if (ts.isExportAssignment(node)) {
-      decls.push({ heading: "export default", start: node.pos, end: node.end })
+      decls.push({ heading: "export default", start, end })
     }
   }
 
   ts.forEachChild(sourceFile, visit)
+  flushImports()
 
-  if (importsText.trim().length > 100) {
-    chunks.push({
-      id: chunkId(relPath, "__imports__"),
-      collection, filePath: relPath,
-      heading: "__imports__", parentHeading: null,
-      content: importsText.trim(),
-      tokens: estimateTokens(importsText),
-    })
-  }
+  for (let i = 0; i < decls.length; i++) {
+    const d = decls[i]
+    let content = sourceText.slice(d.start, d.end).trim()
 
-  for (const d of decls) {
-    const content = sourceText.slice(d.start, d.end).trim()
-    if (content.length < 50) continue
+    if (content.length < 50) {
+      if (i + 1 < decls.length) continue
+      content = sourceText.slice(d.start, d.end).trim()
+    }
+
     chunks.push({
       id: chunkId(relPath, d.heading),
       collection, filePath: relPath,
@@ -218,18 +242,15 @@ export function chunkTsFile(filePath: string, collection: string, projectDir: st
   return chunks.length > 0 ? chunks : chunkTextFile(filePath, collection, projectDir)
 }
 
-function declName(node: ts.Node, sourceFile: ts.SourceFile): string | null {
-  if (ts.isFunctionDeclaration(node) && node.name) return `function ${node.name.text}`
-  if (ts.isClassDeclaration(node) && node.name) return `class ${node.name.text}`
+function declName(node: ts.Node, _sourceFile: ts.SourceFile): string | null {
+  if (ts.isFunctionDeclaration(node)) return `function ${node.name?.text ?? "(anonymous)"}`
+  if (ts.isClassDeclaration(node)) return `class ${node.name?.text ?? "(anonymous)"}`
   if (ts.isInterfaceDeclaration(node) && node.name) return `interface ${node.name.text}`
   if (ts.isTypeAliasDeclaration(node) && node.name) return `type ${node.name.text}`
   if (ts.isEnumDeclaration(node) && node.name) return `enum ${node.name.text}`
   if (ts.isModuleDeclaration(node) && node.name) return `module ${node.name.text}`
-  // decorated/unnamed exports
   if (ts.isExportAssignment(node)) return "export default"
-  if (ts.isExportDeclaration(node) && !node.moduleSpecifier) {
-    if (node.exportClause) return "export"
-  }
+  if (ts.isExportDeclaration(node) && !node.moduleSpecifier && node.exportClause) return "export"
   return null
 }
 
