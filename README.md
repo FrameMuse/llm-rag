@@ -17,10 +17,10 @@ It chunks .md files by heading, embeds them via Ollama, stores vectors in LanceD
 |-----------|-------------|
 | RAM | 4 GB (8 GB for larger doc sets) |
 | CPU | Any x86-64 or ARM64, 2+ cores |
-| GPU | Optional. 4 GB VRAM recommended for faster indexing. Indexing 5000 chunks takes ~25s on RTX 3060, ~3min on CPU-only |
+| GPU | Optional. Any NVIDIA GPU with 2+ GB VRAM. CPU-only fallback is functional but slower |
 | Disk | 100 MB for index (scales with doc count) |
 
-Tested on RTX 3060 Mobile (6 GB VRAM). With `nomic-embed-text` (137M params) GPU utilization sits around 60%. CPU-only fallback is functional but slower.
+Indexing 5000 chunks: ~25s on RTX 3060, ~3min on CPU-only.
 
 ## Install
 
