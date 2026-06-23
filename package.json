@@ -4,7 +4,8 @@
   "description": "Markdown-to-RAG MCP tool — index, search, query",
   "type": "module",
   "scripts": {
-    "cli": "bun scripts/cli.ts"
+    "cli": "bun scripts/cli.ts",
+    "test": "bun test"
   },
   "dependencies": {
     "@lancedb/lancedb": "^0.15.0",

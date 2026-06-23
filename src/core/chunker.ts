@@ -191,9 +191,7 @@ export async function chunkTsFile(filePath: string, collection: string, projectD
     pendingImport = []
   }
 
-  function visit(node: ts.Node) {
-    if (node.kind === ts.SyntaxKind.EndOfFileToken) return
-
+  for (const node of sourceFile.statements) {
     const isImport =
       ts.isImportDeclaration(node) ||
       ts.isImportEqualsDeclaration(node) ||
@@ -201,7 +199,7 @@ export async function chunkTsFile(filePath: string, collection: string, projectD
 
     if (isImport) {
       pendingImport.push(node.getText(sourceFile))
-      return
+      continue
     }
 
     flushImports()
@@ -220,8 +218,6 @@ export async function chunkTsFile(filePath: string, collection: string, projectD
       decls.push({ heading: "export default", start, end })
     }
   }
-
-  ts.forEachChild(sourceFile, visit)
   flushImports()
 
   for (let i = 0; i < decls.length; i++) {
