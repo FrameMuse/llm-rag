@@ -10,10 +10,11 @@
     "@cfworker/json-schema": "^4.1.1",
     "@lancedb/lancedb": "^0.15.0",
     "@modelcontextprotocol/server": "^2.0.0-alpha.2",
-    "gray-matter": "^4.0.3"
+    "chokidar": "^5.0.0",
+    "gray-matter": "^4.0.3",
+    "typescript": "^6.0.3"
   },
   "devDependencies": {
-    "@types/bun": "^1.2.0",
-    "typescript": "^5.7.0"
+    "@types/bun": "^1.3.14"
   }
 }

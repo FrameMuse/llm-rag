@@ -22,7 +22,7 @@ export const DEFAULT_CONFIG: RagConfig = {
   name: "",
   embedModel: "nomic-embed-text",
   ragModel: "llama3.2:3b",
-  pattern: "*.md",
+  pattern: "",
   indexedAt: null,
   fileCount: 0,
   chunkCount: 0,
@@ -51,13 +51,14 @@ export function writeMcpJson(ragDir: string, entry: Record<string, McpJsonEntry>
   writeFileSync(join(ragDir, "mcp.json"), JSON.stringify(entry, null, 2) + "\n")
 }
 
-export function ensureRagDir(projectDir: string, name?: string): string {
+export function ensureRagDir(projectDir: string, name?: string, pattern?: string): string {
   const ragDir = join(projectDir, ".rag")
   if (!existsSync(ragDir)) mkdirSync(ragDir, { recursive: true })
 
   const config: RagConfig = {
     ...DEFAULT_CONFIG,
     name: name || basename(projectDir),
+    pattern: pattern ?? DEFAULT_CONFIG.pattern,
   }
   writeConfig(ragDir, config)
   writeFileSync(join(ragDir, ".gitignore"), "*\n")

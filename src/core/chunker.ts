@@ -1,7 +1,8 @@
 import { readFileSync, readdirSync } from "fs"
 import matter from "gray-matter"
-import { join, relative } from "path"
+import { join, relative, extname } from "path"
 import { createHash } from "crypto"
+import ts from "typescript"
 
 export interface Chunk {
   id: string
@@ -15,6 +16,15 @@ export interface Chunk {
 
 const HEADING_RE = /^(#{2,4})\s+(.+)$/gm
 
+export const SUPPORTED_EXTENSIONS = new Set([
+  ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+  ".json", ".md", ".mdx",
+  ".css", ".scss", ".less", ".sass",
+  ".yaml", ".yml", ".toml", ".html", ".htm",
+])
+
+// ── helpers ──────────────────────────────────────────
+
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
 }
@@ -26,42 +36,96 @@ function chunkId(filePath: string, heading: string): string {
     .slice(0, 16)
 }
 
-export function chunkFile(
-  filePath: string,
-  collection: string,
-  projectDir: string,
-): Chunk[] {
+// ── file walking ──────────────────────────────────────
+
+export function walkFiles(projectDir: string, pattern: string): string[] {
+  if (pattern && pattern !== "*") {
+    try {
+      const Glob = (Bun as any).Glob
+      if (Glob) {
+        return [...new Glob(`**/${pattern}`).scanSync({ cwd: projectDir })]
+          .map((f: string) => join(projectDir, f)).sort()
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  const files: string[] = []
+  function walk(dir: string) {
+    let entries
+    try { entries = readdirSync(dir, { withFileTypes: true }) }
+    catch { return }
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (entry.name.startsWith(".") || entry.name === "node_modules") continue
+        walk(fullPath)
+      } else {
+        const ext = extname(entry.name).toLowerCase()
+        if (!pattern || pattern === "*") {
+          if (SUPPORTED_EXTENSIONS.has(ext)) files.push(fullPath)
+        } else {
+          if (entry.name.endsWith(extname(pattern))) files.push(fullPath)
+        }
+      }
+    }
+  }
+  walk(projectDir)
+  return files.sort()
+}
+
+// ── dispatcher ────────────────────────────────────────
+
+export function chunkFile(filePath: string, collection: string, projectDir: string): Chunk[] {
+  const ext = extname(filePath).toLowerCase()
+  switch (ext) {
+    case ".ts":
+    case ".tsx":
+    case ".js":
+    case ".jsx":
+    case ".mjs":
+    case ".cjs":
+      return chunkTsFile(filePath, collection, projectDir)
+    case ".json":
+      return chunkJsonFile(filePath, collection, projectDir)
+    case ".md":
+    case ".mdx":
+      return chunkMdFile(filePath, collection, projectDir)
+    default:
+      return chunkTextFile(filePath, collection, projectDir)
+  }
+}
+
+// ── markdown chunker ──────────────────────────────────
+
+export function chunkMdFile(filePath: string, collection: string, projectDir: string): Chunk[] {
   const raw = readFileSync(filePath, "utf-8")
   const parsed = matter(raw)
   const content = parsed.content
   const relPath = relative(projectDir, filePath)
 
-  const chunks: Chunk[] = []
-  let lastH1: string | null = null
-  let lastH2: string | null = null
-
-  HEADING_RE.lastIndex = 0
   const headings: { level: number; text: string; index: number }[] = []
   let match: RegExpExecArray | null
+  HEADING_RE.lastIndex = 0
   while ((match = HEADING_RE.exec(content)) !== null) {
-    const level = match[1].length
-    headings.push({ level, text: match[2].trim(), index: match.index })
+    headings.push({ level: match[1].length, text: match[2].trim(), index: match.index })
   }
 
   if (headings.length === 0) {
     const trimmed = content.trim()
     if (trimmed.length < 200) return []
-    chunks.push({
+    return [{
       id: chunkId(relPath, "__body__"),
-      collection,
-      filePath: relPath,
-      heading: "__body__",
-      parentHeading: null,
-      content: trimmed,
-      tokens: estimateTokens(trimmed),
-    })
-    return chunks
+      collection, filePath: relPath,
+      heading: "__body__", parentHeading: null,
+      content: trimmed, tokens: estimateTokens(trimmed),
+    }]
   }
+
+  const chunks: Chunk[] = []
+  let lastH1: string | null = null
+  let lastH2: string | null = null
 
   for (let i = 0; i < headings.length; i++) {
     const h = headings[i]
@@ -78,32 +142,161 @@ export function chunkFile(
 
     chunks.push({
       id: chunkId(relPath, h.text),
-      collection,
-      filePath: relPath,
-      heading: h.text,
-      parentHeading: parent,
-      content: sectionContent,
-      tokens: estimateTokens(sectionContent),
+      collection, filePath: relPath,
+      heading: h.text, parentHeading: parent,
+      content: sectionContent, tokens: estimateTokens(sectionContent),
     })
   }
 
   return chunks
 }
 
-export function walkFiles(projectDir: string, _pattern: string): string[] {
-  const files: string[] = []
-  function walk(dir: string) {
-    const entries = readdirSync(dir, { withFileTypes: true })
-    for (const entry of entries) {
-      const fullPath = join(dir, entry.name)
-      if (entry.isDirectory()) {
-        if (entry.name.startsWith(".") || entry.name === "node_modules") continue
-        walk(fullPath)
-      } else if (entry.name.endsWith(".md")) {
-        files.push(fullPath)
-      }
+// ── TypeScript/JS AST chunker ─────────────────────────
+
+export function chunkTsFile(filePath: string, collection: string, projectDir: string): Chunk[] {
+  const relPath = relative(projectDir, filePath)
+  const sourceText = readFileSync(filePath, "utf-8")
+  if (sourceText.trim().length < 50) return []
+
+  const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true)
+
+  const chunks: Chunk[] = []
+  const decls: { heading: string; start: number; end: number }[] = []
+  let importsText = ""
+  let importsEnd = 0
+
+  function visit(node: ts.Node) {
+    if (node.kind === ts.SyntaxKind.EndOfFileToken) return
+
+    const isImport =
+      ts.isImportDeclaration(node) ||
+      ts.isImportEqualsDeclaration(node) ||
+      (ts.isExportDeclaration(node) && node.moduleSpecifier)
+
+    if (isImport) {
+      importsText += node.getText(sourceFile) + "\n"
+      importsEnd = node.end
+      return
+    }
+
+    const name = declName(node, sourceFile)
+    if (name) {
+      decls.push({ heading: name, start: node.pos, end: node.end })
+    } else if (ts.isVariableStatement(node)) {
+      const first = node.declarationList.declarations[0]
+      const varName = first?.name && ts.isIdentifier(first.name) ? first.name.text : "variable"
+      decls.push({ heading: varName, start: node.pos, end: node.end })
+    } else if (ts.isExportAssignment(node)) {
+      decls.push({ heading: "export default", start: node.pos, end: node.end })
     }
   }
-  walk(projectDir)
-  return files.sort()
+
+  ts.forEachChild(sourceFile, visit)
+
+  if (importsText.trim().length > 100) {
+    chunks.push({
+      id: chunkId(relPath, "__imports__"),
+      collection, filePath: relPath,
+      heading: "__imports__", parentHeading: null,
+      content: importsText.trim(),
+      tokens: estimateTokens(importsText),
+    })
+  }
+
+  for (const d of decls) {
+    const content = sourceText.slice(d.start, d.end).trim()
+    if (content.length < 50) continue
+    chunks.push({
+      id: chunkId(relPath, d.heading),
+      collection, filePath: relPath,
+      heading: d.heading, parentHeading: null,
+      content,
+      tokens: estimateTokens(content),
+    })
+  }
+
+  return chunks.length > 0 ? chunks : chunkTextFile(filePath, collection, projectDir)
+}
+
+function declName(node: ts.Node, sourceFile: ts.SourceFile): string | null {
+  if (ts.isFunctionDeclaration(node) && node.name) return `function ${node.name.text}`
+  if (ts.isClassDeclaration(node) && node.name) return `class ${node.name.text}`
+  if (ts.isInterfaceDeclaration(node) && node.name) return `interface ${node.name.text}`
+  if (ts.isTypeAliasDeclaration(node) && node.name) return `type ${node.name.text}`
+  if (ts.isEnumDeclaration(node) && node.name) return `enum ${node.name.text}`
+  if (ts.isModuleDeclaration(node) && node.name) return `module ${node.name.text}`
+  // decorated/unnamed exports
+  if (ts.isExportAssignment(node)) return "export default"
+  if (ts.isExportDeclaration(node) && !node.moduleSpecifier) {
+    if (node.exportClause) return "export"
+  }
+  return null
+}
+
+// ── JSON chunker ──────────────────────────────────────
+
+export function chunkJsonFile(filePath: string, collection: string, projectDir: string): Chunk[] {
+  const relPath = relative(projectDir, filePath)
+  const sourceText = readFileSync(filePath, "utf-8").trim()
+  if (sourceText.length < 50) return []
+
+  try {
+    const parsed = JSON.parse(sourceText)
+    if (typeof parsed !== "object" || parsed === null) {
+      return [{
+        id: chunkId(relPath, "__body__"),
+        collection, filePath: relPath,
+        heading: "__body__", parentHeading: null,
+        content: sourceText, tokens: estimateTokens(sourceText),
+      }]
+    }
+
+    const keys = Object.keys(parsed)
+    if (keys.length <= 5 || Array.isArray(parsed)) {
+      return [{
+        id: chunkId(relPath, "__body__"),
+        collection, filePath: relPath,
+        heading: "__body__", parentHeading: null,
+        content: sourceText, tokens: estimateTokens(sourceText),
+      }]
+    }
+
+    return keys.map((key) => ({
+      id: chunkId(relPath, key),
+      collection, filePath: relPath,
+      heading: key, parentHeading: null,
+      content: JSON.stringify(parsed[key], null, 2),
+      tokens: estimateTokens(JSON.stringify(parsed[key])),
+    }))
+  } catch {
+    return chunkTextFile(filePath, collection, projectDir)
+  }
+}
+
+// ── text fallback chunker (50-line) ───────────────────
+
+export function chunkTextFile(filePath: string, collection: string, projectDir: string): Chunk[] {
+  const relPath = relative(projectDir, filePath)
+  const lines = readFileSync(filePath, "utf-8").split("\n")
+  if (lines.length < 5) return []
+
+  const CHUNK_LINES = 50
+  const chunks: Chunk[] = []
+
+  for (let i = 0; i < lines.length; i += CHUNK_LINES) {
+    const end = Math.min(i + CHUNK_LINES, lines.length)
+    const content = lines.slice(i, end).join("\n").trim()
+    if (content.length < 50) continue
+
+    chunks.push({
+      id: chunkId(relPath, `L${i + 1}-L${end}`),
+      collection, filePath: relPath,
+      heading: `L${i + 1}-L${end}`,
+      parentHeading: null,
+      content,
+      tokens: estimateTokens(content),
+    })
+  }
+
+  return chunks
 }

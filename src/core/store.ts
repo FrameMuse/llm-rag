@@ -72,6 +72,14 @@ export async function searchTable(
   }))
 }
 
+export async function deleteChunksForFile(
+  table: Table,
+  filePath: string,
+): Promise<void> {
+  const escaped = filePath.replace(/'/g, "\\'")
+  await table.delete(`filePath = '${escaped}'`)
+}
+
 export async function listDocumentPaths(table: Table): Promise<string[]> {
   const results = await table.query().select(["filePath"]).limit(100000).toArray()
   const paths = new Set(results.map((r: Record<string, unknown>) => r.filePath as string))

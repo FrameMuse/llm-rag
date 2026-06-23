@@ -1,16 +1,17 @@
 import { walkFiles, chunkFile } from "../core/chunker"
 import { requireRagDir } from "../core/ragdir"
 import { readConfig, writeConfig, getProjectDir, getDataDir } from "../core/config"
-import { ensureModel, embedBatch } from "../core/embedder"
-import { initStore, createTableFromRecords, chunkToRecord, dbPath } from "../core/store"
+import { ensureModel, embed, embedBatch } from "../core/embedder"
+import { initStore, createTableFromRecords, addChunks, deleteChunksForFile, chunkToRecord, openTable, dbPath } from "../core/store"
 import { ProgressBar } from "../utils/output"
+import { relative } from "path"
 
-export async function indexCommand(): Promise<void> {
+export async function indexCommand(watchMode = false): Promise<void> {
   const ragDir = requireRagDir()
   const config = readConfig(ragDir)
   const projectDir = getProjectDir(ragDir)
 
-  console.log(`Indexing '${config.name}' (pattern: ${config.pattern})...`)
+  console.log(`Indexing '${config.name}' (pattern: ${config.pattern || "*"})...`)
   console.log(`  Project: ${projectDir}`)
   console.log(`  Model:   ${config.embedModel}`)
 
@@ -19,7 +20,7 @@ export async function indexCommand(): Promise<void> {
   const files = walkFiles(projectDir, config.pattern)
   console.log(`  Files:   ${files.length}`)
 
-  const allChunks: Chunk[] = []
+  const allChunks: import("../core/chunker").Chunk[] = []
   for (const file of files) {
     const chunks = chunkFile(file, config.name, projectDir)
     allChunks.push(...chunks)
@@ -57,4 +58,63 @@ export async function indexCommand(): Promise<void> {
 
   console.log("  Done.")
   console.log(`  Indexed ${records.length} chunks from ${files.length} files.`)
+
+  if (watchMode) {
+    const { watch } = await import("chokidar")
+    const table = await openTable(conn, config.name)
+    const watcher = watch(projectDir, {
+      ignored: /(^|[/\\])(\.|node_modules)/,
+      persistent: true,
+    })
+    watcher.on("change", (p) => reindexFile(ragDir, config, projectDir, p, conn, table))
+    watcher.on("add", (p) => reindexFile(ragDir, config, projectDir, p, conn, table))
+    watcher.on("unlink", (p) => removeFile(ragDir, config, projectDir, p, conn, table))
+    console.log("Watching for changes...")
+    await new Promise(() => {})
+  }
+}
+
+export async function reindexFile(
+  ragDir: string,
+  config: import("../core/config").RagConfig,
+  projectDir: string,
+  filePath: string,
+  conn: import("@lancedb/lancedb").Connection,
+  table: import("@lancedb/lancedb").Table,
+): Promise<void> {
+  const relPath = relative(projectDir, filePath)
+  try {
+    const chunks = chunkFile(filePath, config.name, projectDir)
+    if (chunks.length === 0) return
+
+    await deleteChunksForFile(table, relPath)
+
+    const texts = chunks.map((c) => c.content)
+    const embeddings = await embedBatch(texts, config.embedModel)
+
+    const records = chunks
+      .map((chunk, i) => (embeddings[i] ? chunkToRecord(chunk, embeddings[i]!) : null))
+      .filter(Boolean) as Record<string, unknown>[]
+
+    if (records.length > 0) {
+      await addChunks(table, records)
+    }
+
+    console.error(`  Re-indexed ${relPath} (${records.length} chunks)`)
+  } catch (e) {
+    console.error(`  Failed to re-index ${relPath}: ${e}`)
+  }
+}
+
+export async function removeFile(
+  ragDir: string,
+  config: import("../core/config").RagConfig,
+  projectDir: string,
+  filePath: string,
+  conn: import("@lancedb/lancedb").Connection,
+  table: import("@lancedb/lancedb").Table,
+): Promise<void> {
+  const relPath = relative(projectDir, filePath)
+  await deleteChunksForFile(table, relPath)
+  console.error(`  Removed ${relPath}`)
 }
