@@ -14,18 +14,39 @@ interface OllamaTagsResponse {
 
 async function ollamaFetch(path: string, body?: unknown, timeoutMs = 30000): Promise<Response> {
   const url = `${OLLAMA_HOST}${path}`
-  const opts: RequestInit = {
-    method: body ? "POST" : "GET",
-    headers: body ? { "Content-Type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
+  let lastErr: Error | undefined
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt))
+    }
+
+    const opts: RequestInit = {
+      method: body ? "POST" : "GET",
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    }
+    if (timeoutMs > 0) opts.signal = AbortSignal.timeout(timeoutMs)
+
+    try {
+      const res = await fetch(url, opts)
+      if (res.ok) return res
+
+      const text = await res.text()
+      if (res.status < 500) {
+        throw new Error(`Ollama error (${res.status}): ${text}`)
+      }
+      lastErr = new Error(`Ollama error (${res.status}): ${text}`)
+    } catch (e) {
+      if (e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError")) {
+        lastErr = e
+        continue
+      }
+      throw e
+    }
   }
-  if (timeoutMs > 0) opts.signal = AbortSignal.timeout(timeoutMs)
-  const res = await fetch(url, opts)
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Ollama error (${res.status}): ${text}`)
-  }
-  return res
+
+  throw lastErr || new Error("Ollama request failed after 3 retries")
 }
 
 export async function checkOllama(): Promise<boolean> {

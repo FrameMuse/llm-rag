@@ -20,46 +20,51 @@ export async function indexCommand(watchMode = false): Promise<void> {
   const files = walkFiles(projectDir, config.pattern)
   console.log(`  Files:   ${files.length}`)
 
-  const allChunks: import("../core/chunker").Chunk[] = []
-  for (const file of files) {
-    const chunks = chunkFile(file, config.name, projectDir)
-    allChunks.push(...chunks)
-  }
-
-  console.log(`  Chunks:  ${allChunks.length}`)
-
-  if (allChunks.length === 0) {
-    console.log("No chunks to index.")
-    return
-  }
-
-  const texts = allChunks.map((c) => c.content)
-  const bar = new ProgressBar("Embedding", texts.length)
-  const embeddings = await embedBatch(texts, config.embedModel, (done) => bar.tick(done - bar.position))
-
   const dataDir = getDataDir(ragDir)
   const conn = await initStore(dbPath(dataDir))
 
-  const records = allChunks
-    .map((chunk, i) => (embeddings[i] ? chunkToRecord(chunk, embeddings[i]!) : null))
-    .filter(Boolean) as Record<string, unknown>[]
+  let totalChunks = 0
+  let totalFiles = 0
+  let tableCreated = false
+  const bar = new ProgressBar("Processing", files.length)
 
-  const failedCount = embeddings.filter((e) => e === null).length
-  if (failedCount > 0) {
-    console.log(`  Skipped ${failedCount} chunks (embedding failed).`)
+  for (const file of files) {
+    const chunks = await chunkFile(file, config.name, projectDir)
+    if (chunks.length === 0) continue
+
+    const texts = chunks.map((c) => c.content)
+    const embeddings = await embedBatch(texts, config.embedModel)
+    const records = chunks
+      .map((chunk, i) => (embeddings[i] ? chunkToRecord(chunk, embeddings[i]!) : null))
+      .filter(Boolean) as Record<string, unknown>[]
+
+    if (records.length === 0) continue
+
+    if (!tableCreated) {
+      await createTableFromRecords(conn, config.name, records)
+      tableCreated = true
+    } else {
+      const tbl = await openTable(conn, config.name)
+      await addChunks(tbl, records)
+    }
+
+    totalChunks += records.length
+    totalFiles++
+    bar.tick(1)
   }
 
-  await createTableFromRecords(conn, config.name, records)
-  const table = await openTable(conn, config.name)
-  await createFtsIndex(table)
+  if (tableCreated) {
+    const tbl = await openTable(conn, config.name)
+    await createFtsIndex(tbl)
+  }
 
   config.indexedAt = new Date().toISOString()
-  config.fileCount = files.length
-  config.chunkCount = records.length
+  config.fileCount = totalFiles
+  config.chunkCount = totalChunks
   writeConfig(ragDir, config)
 
   console.log("  Done.")
-  console.log(`  Indexed ${records.length} chunks from ${files.length} files.`)
+  console.log(`  Indexed ${totalChunks} chunks from ${totalFiles} files.`)
 
   if (watchMode) {
     const { watch } = await import("chokidar")
@@ -92,7 +97,7 @@ export async function reindexFile(
 ): Promise<void> {
   const relPath = relative(projectDir, filePath)
   try {
-    const chunks = chunkFile(filePath, config.name, projectDir)
+    const chunks = await chunkFile(filePath, config.name, projectDir)
     if (chunks.length === 0) return
 
     await deleteChunksForFile(table, relPath)

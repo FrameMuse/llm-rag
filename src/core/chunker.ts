@@ -1,4 +1,5 @@
-import { readFileSync, readdirSync } from "fs"
+import { readdirSync } from "fs"
+import { readFile } from "fs/promises"
 import matter from "gray-matter"
 import { join, relative, extname } from "path"
 import { createHash } from "crypto"
@@ -90,7 +91,7 @@ export function walkFiles(projectDir: string, pattern: string): string[] {
 
 // ── dispatcher ────────────────────────────────────────
 
-export function chunkFile(filePath: string, collection: string, projectDir: string): Chunk[] {
+export async function chunkFile(filePath: string, collection: string, projectDir: string): Promise<Chunk[]> {
   const ext = extname(filePath).toLowerCase()
   switch (ext) {
     case ".ts":
@@ -112,8 +113,8 @@ export function chunkFile(filePath: string, collection: string, projectDir: stri
 
 // ── markdown chunker ──────────────────────────────────
 
-export function chunkMdFile(filePath: string, collection: string, projectDir: string): Chunk[] {
-  const raw = readFileSync(filePath, "utf-8")
+export async function chunkMdFile(filePath: string, collection: string, projectDir: string): Promise<Chunk[]> {
+  const raw = await readFile(filePath, "utf-8")
   const parsed = matter(raw)
   const content = parsed.content
   const relPath = relative(projectDir, filePath)
@@ -168,9 +169,9 @@ export function chunkMdFile(filePath: string, collection: string, projectDir: st
 
 // ── TypeScript/JS AST chunker ─────────────────────────
 
-export function chunkTsFile(filePath: string, collection: string, projectDir: string): Chunk[] {
+export async function chunkTsFile(filePath: string, collection: string, projectDir: string): Promise<Chunk[]> {
   const relPath = relative(projectDir, filePath)
-  const sourceText = readFileSync(filePath, "utf-8")
+  const sourceText = await readFile(filePath, "utf-8")
   if (sourceText.trim().length < 50) return []
 
   const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true)
@@ -260,9 +261,9 @@ function declName(node: ts.Node, _sourceFile: ts.SourceFile): string | null {
 
 // ── JSON chunker ──────────────────────────────────────
 
-export function chunkJsonFile(filePath: string, collection: string, projectDir: string): Chunk[] {
+export async function chunkJsonFile(filePath: string, collection: string, projectDir: string): Promise<Chunk[]> {
   const relPath = relative(projectDir, filePath)
-  const sourceText = readFileSync(filePath, "utf-8").trim()
+  const sourceText = (await readFile(filePath, "utf-8")).trim()
   if (sourceText.length < 50) return []
 
   try {
@@ -305,9 +306,9 @@ export function chunkJsonFile(filePath: string, collection: string, projectDir: 
 
 // ── text fallback chunker (50-line) ───────────────────
 
-export function chunkTextFile(filePath: string, collection: string, projectDir: string): Chunk[] {
+export async function chunkTextFile(filePath: string, collection: string, projectDir: string): Promise<Chunk[]> {
   const relPath = relative(projectDir, filePath)
-  const lines = readFileSync(filePath, "utf-8").split("\n")
+  const lines = (await readFile(filePath, "utf-8")).split("\n")
   if (lines.length < 5) return []
 
   const CHUNK_LINES = 50
