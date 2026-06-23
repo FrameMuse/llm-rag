@@ -35,7 +35,7 @@ const IGNORE_DIRS = new Set([
 // ── helpers ──────────────────────────────────────────
 
 function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4)
+  return Math.ceil(text.length / 3)
 }
 
 function chunkId(filePath: string, heading: string): string {
@@ -53,16 +53,11 @@ function buildHeader(filePath: string, heading: string, parent: string | null): 
 // ── file walking ──────────────────────────────────────
 
 export function walkFiles(projectDir: string, pattern: string): string[] {
-  if (pattern && pattern !== "*") {
-    try {
-      const Glob = (Bun as any).Glob
-      if (Glob) {
-        return [...new Glob(`**/${pattern}`).scanSync({ cwd: projectDir })]
-          .map((f: string) => join(projectDir, f)).sort()
-      }
-    } catch {
-      // fall through
-    }
+  const Glob = (Bun as any).Glob
+
+  if (pattern && pattern !== "*" && Glob) {
+    return [...new Glob(`**/${pattern}`).scanSync({ cwd: projectDir })]
+      .map((f: string) => join(projectDir, f)).sort()
   }
 
   const files: string[] = []

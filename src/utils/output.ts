@@ -25,9 +25,13 @@ export class ProgressBar {
     const pct = Math.min(Math.round((this.done / this.total) * 100), 100)
     const filled = Math.floor(pct / 5)
     const empty = 20 - filled
-    const elapsed = ((Date.now() - this.started) / 1000).toFixed(1)
+    const elapsedMs = Date.now() - this.started
+    const elapsed = (elapsedMs / 1000).toFixed(1)
+    const eta = this.done > 0
+      ? Math.round(elapsedMs / this.done * (this.total - this.done) / 1000)
+      : "?"
     process.stdout.write(
-      `\r  ${this.label} [${"█".repeat(filled)}${"░".repeat(empty)}] ${pct}% (${this.done}/${this.total}, ${elapsed}s)`,
+      `\r  ${this.label} [${"█".repeat(filled)}${"░".repeat(empty)}] ${pct}% (${this.done}/${this.total}, ${elapsed}s, ETA ${eta}s)`,
     )
   }
 }

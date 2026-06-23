@@ -7,7 +7,6 @@
     "cli": "bun scripts/cli.ts"
   },
   "dependencies": {
-    "@cfworker/json-schema": "^4.1.1",
     "@lancedb/lancedb": "^0.15.0",
     "@modelcontextprotocol/server": "^2.0.0-alpha.2",
     "chokidar": "^5.0.0",

@@ -115,7 +115,7 @@ export async function handleSearch(
   const table = await openTable(conn, config.name)
   const vec = await embed(query, config.embedModel)
 
-  const results = await hybridSearchTable(table, query, vec, limit)
+  const results = await hybridSearchTable(table, query, vec, Math.min(limit, 20))
 
   return {
     query,

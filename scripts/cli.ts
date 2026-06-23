@@ -26,6 +26,12 @@ async function main() {
   const args = process.argv.slice(2)
   const command = args[0]
 
+  if (command === "--version" || command === "-v") {
+    const pkg = { version: "0.1.0" }
+    console.log(`rag v${pkg.version}`)
+    return
+  }
+
   if (!command || command === "help" || command === "--help") {
     help()
     return
