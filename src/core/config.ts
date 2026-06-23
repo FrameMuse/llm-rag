@@ -22,9 +22,9 @@ export interface McpJsonEntry {
 export const DEFAULT_CONFIG: RagConfig = {
   name: "",
   embedModel: "nomic-embed-text",
-  ragModel: "qwen2.5:7b",
+  ragModel: "llama3.2:3b",
   pattern: "",
-  chunks: 12,
+  chunks: 8,
   indexedAt: null,
   fileCount: 0,
   chunkCount: 0,
