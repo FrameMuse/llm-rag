@@ -49,7 +49,7 @@ export async function handleQuery(
   const table = await openTable(conn, config.name)
 
   const queryVector = await embed(question, config.embedModel)
-  const results = await searchTable(table, queryVector, 8)
+  const results = await searchTable(table, queryVector, 12)
 
   await ensureModel(config.ragModel)
 
