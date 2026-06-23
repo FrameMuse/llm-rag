@@ -230,12 +230,9 @@ export function chunkTsFile(filePath: string, collection: string, projectDir: st
 
   for (let i = 0; i < decls.length; i++) {
     const d = decls[i]
-    let content = sourceText.slice(d.start, d.end).trim()
+    const content = sourceText.slice(d.start, d.end).trim()
 
-    if (content.length < 50) {
-      if (i + 1 < decls.length) continue
-      content = sourceText.slice(d.start, d.end).trim()
-    }
+    if (content.length < 50 && i + 1 < decls.length) continue
 
     chunks.push({
       id: chunkId(relPath, d.heading),

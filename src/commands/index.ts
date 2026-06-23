@@ -67,10 +67,16 @@ export async function indexCommand(watchMode = false): Promise<void> {
     const watcher = watch(projectDir, {
       ignored: /(^|[/\\])(\.|node_modules)/,
       persistent: true,
+      awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
     })
     watcher.on("change", (p) => reindexFile(ragDir, config, projectDir, p, conn, table))
     watcher.on("add", (p) => reindexFile(ragDir, config, projectDir, p, conn, table))
     watcher.on("unlink", (p) => removeFile(ragDir, config, projectDir, p, conn, table))
+    process.on("SIGINT", () => {
+      watcher.close()
+      conn.close()
+      process.exit(0)
+    })
     console.log("Watching for changes...")
     await new Promise(() => {})
   }
