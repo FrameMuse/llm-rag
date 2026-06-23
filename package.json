@@ -1,0 +1,19 @@
+{
+  "name": "rag",
+  "version": "0.1.0",
+  "description": "Markdown-to-RAG MCP tool — index, search, query",
+  "type": "module",
+  "scripts": {
+    "cli": "bun scripts/cli.ts"
+  },
+  "dependencies": {
+    "@cfworker/json-schema": "^4.1.1",
+    "@lancedb/lancedb": "^0.15.0",
+    "@modelcontextprotocol/server": "^2.0.0-alpha.2",
+    "gray-matter": "^4.0.3"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "typescript": "^5.7.0"
+  }
+}
