@@ -2,6 +2,7 @@ import { requireRagDir } from "../core/ragdir"
 import { readConfig, getProjectDir, getDataDir } from "../core/config"
 import { startMcpServer } from "../mcp/server"
 import { initStore, openTable, dbPath } from "../core/store"
+import { getIgnoredFiles } from "../utils/watch"
 import { watch } from "chokidar"
 import { reindexFile, removeFile } from "./index"
 
@@ -14,9 +15,10 @@ export async function serveCommand(watchMode = false): Promise<void> {
     const dataDir = getDataDir(ragDir)
     const conn = await initStore(dbPath(dataDir))
     const table = await openTable(conn, config.name)
+    const isIgnored = getIgnoredFiles(projectDir)
 
     const watcher = watch(projectDir, {
-      ignored: /(^|[/\\])(\.|node_modules)/,
+      ignored: (path: string) => isIgnored(path),
       persistent: true,
       awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
     })

@@ -3,6 +3,7 @@ import { requireRagDir } from "../core/ragdir"
 import { readConfig, writeConfig, getProjectDir, getDataDir } from "../core/config"
 import { ensureModel, embed, embedBatch } from "../core/embedder"
 import { initStore, createTableFromRecords, addChunks, deleteChunksForFile, createFtsIndex, chunkToRecord, openTable, dbPath } from "../core/store"
+import { getIgnoredFiles } from "../utils/watch"
 import { ProgressBar } from "../utils/output"
 import { relative } from "path"
 
@@ -69,8 +70,9 @@ export async function indexCommand(watchMode = false): Promise<void> {
   if (watchMode) {
     const { watch } = await import("chokidar")
     const table = await openTable(conn, config.name)
+    const isIgnored = getIgnoredFiles(projectDir)
     const watcher = watch(projectDir, {
-      ignored: /(^|[/\\])(\.|node_modules)/,
+      ignored: (path: string) => isIgnored(path),
       persistent: true,
       awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
     })
