@@ -68,6 +68,7 @@ async function retrieveExpanded(
   config: RagConfig,
   question: string,
 ): Promise<SearchResult[]> {
+  await ensureModel(config.embedModel)
   const dataDir = getDataDir(ragDir)
   const conn = await initStore(dbPath(dataDir))
   const exists = await tableExists(conn, config.name)
@@ -104,6 +105,7 @@ export async function handleSearch(
   query: string,
   limit: number,
 ) {
+  await ensureModel(config.embedModel)
   const dataDir = getDataDir(ragDir)
   const conn = await initStore(dbPath(dataDir))
   const exists = await tableExists(conn, config.name)
@@ -185,6 +187,9 @@ export async function handleGetDocument(
   path: string,
 ): Promise<string> {
   const fullPath = resolve(projectDir, path)
+  if (relative(projectDir, fullPath).startsWith("..")) {
+    return `Access denied: ${path}`
+  }
   try {
     return readFileSync(fullPath, "utf-8")
   } catch {

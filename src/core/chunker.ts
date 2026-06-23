@@ -14,7 +14,7 @@ export interface Chunk {
   tokens: number
 }
 
-const HEADING_RE = /^(#{2,4})\s+(.+)$/gm
+const HEADING_RE = /^(#{1,6})\s+(.+)$/gm
 
 export const SUPPORTED_EXTENSIONS = new Set([
   ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
@@ -147,10 +147,10 @@ export function chunkMdFile(filePath: string, collection: string, projectDir: st
     const end = i + 1 < headings.length ? headings[i + 1].index : content.length
     const sectionContent = content.slice(start + h.text.length + h.level + 1, end).trim()
 
-    if (sectionContent.length < 200 && i + 1 < headings.length) continue
-
     if (h.level === 1) lastH1 = h.text
     if (h.level === 2) lastH2 = h.text
+
+    if (sectionContent.length < 200 && i + 1 < headings.length) continue
 
     const parent = h.level > 2 ? (h.level === 3 ? lastH2 : lastH1) : null
 
@@ -291,13 +291,16 @@ export function chunkJsonFile(filePath: string, collection: string, projectDir: 
       }]
     }
 
-    return keys.map((key) => ({
-      id: chunkId(relPath, key),
-      collection, filePath: relPath,
-      heading: key, parentHeading: null,
-      content: buildHeader(relPath, key, null) + JSON.stringify(parsed[key], null, 2),
-      tokens: estimateTokens(JSON.stringify(parsed[key])),
-    }))
+    return keys.map((key) => {
+      const json = JSON.stringify(parsed[key], null, 2)
+      return {
+        id: chunkId(relPath, key),
+        collection, filePath: relPath,
+        heading: key, parentHeading: null,
+        content: buildHeader(relPath, key, null) + json,
+        tokens: estimateTokens(json),
+      }
+    })
   } catch {
     return chunkTextFile(filePath, collection, projectDir)
   }

@@ -26,13 +26,14 @@ export async function mcpCommand(args: string[]): Promise<void> {
     }
 
     case "search": {
-      const query = args.slice(1).join(" ")
+      const limitIdx = args.indexOf("--limit")
+      const limit = limitIdx > 0 ? parseInt(args[limitIdx + 1], 10) || 10 : 10
+      const skip = limitIdx > 0 ? [limitIdx, limitIdx + 1] : []
+      const query = args.slice(1).filter((_, i) => !skip.includes(i + 1)).join(" ")
       if (!query) {
         console.error("Usage: rag mcp search <query> [--limit N]")
         process.exit(1)
       }
-      const limitIdx = args.indexOf("--limit")
-      const limit = limitIdx > 0 ? parseInt(args[limitIdx + 1], 10) || 10 : 10
       const result = await handlers.handleSearch(ragDir, projectDir, config, query, limit)
       for (const r of result.results) {
         console.log(`[${r.score.toFixed(2)}] ${r.filePath} > ${r.heading}`)
