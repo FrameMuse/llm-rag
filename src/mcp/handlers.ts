@@ -5,6 +5,37 @@ import { getDataDir } from "../core/config"
 import { embed, chat, ensureModel } from "../core/embedder"
 import { initStore, tableExists, openTable, searchTable, listDocumentPaths, dbPath } from "../core/store"
 
+const RAG_CHUNKS = 16
+
+function diversify(
+  results: Awaited<ReturnType<typeof searchTable>>,
+): Awaited<ReturnType<typeof searchTable>> {
+  const picked: typeof results = []
+  const seenFiles = new Set<string>()
+  const seenHeadings = new Set<string>()
+
+  for (const r of results) {
+    const key = `${r.filePath}::${r.heading}`
+    if (seenHeadings.has(key)) continue
+    if (picked.length < 4 || !seenFiles.has(r.filePath)) {
+      picked.push(r)
+      seenFiles.add(r.filePath)
+      seenHeadings.add(key)
+      if (picked.length >= RAG_CHUNKS) break
+    }
+  }
+
+  for (const r of results) {
+    if (picked.length >= RAG_CHUNKS) break
+    const key = `${r.filePath}::${r.heading}`
+    if (seenHeadings.has(key)) continue
+    picked.push(r)
+    seenHeadings.add(key)
+  }
+
+  return picked
+}
+
 export async function handleSearch(
   ragDir: string,
   projectDir: string,
@@ -49,7 +80,8 @@ export async function handleQuery(
   const table = await openTable(conn, config.name)
 
   const queryVector = await embed(question, config.embedModel)
-  const results = await searchTable(table, queryVector, 12)
+  const raw = await searchTable(table, queryVector, RAG_CHUNKS * 2)
+  const results = diversify(raw)
 
   await ensureModel(config.ragModel)
 
