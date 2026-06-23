@@ -1,4 +1,4 @@
-const OLLAMA_HOST = "http://localhost:11434"
+const OLLAMA_HOST = (process.env.OLLAMA_HOST || "http://localhost:11434").replace(/\/+$/, "")
 
 interface OllamaEmbedResponse {
   embedding: number[]
@@ -12,13 +12,15 @@ interface OllamaTagsResponse {
   models: { name: string }[]
 }
 
-async function ollamaFetch(path: string, body?: unknown): Promise<Response> {
+async function ollamaFetch(path: string, body?: unknown, timeoutMs = 30000): Promise<Response> {
   const url = `${OLLAMA_HOST}${path}`
-  const res = await fetch(url, {
+  const opts: RequestInit = {
     method: body ? "POST" : "GET",
     headers: body ? { "Content-Type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
-  })
+  }
+  if (timeoutMs > 0) opts.signal = AbortSignal.timeout(timeoutMs)
+  const res = await fetch(url, opts)
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`Ollama error (${res.status}): ${text}`)
@@ -47,7 +49,7 @@ export async function checkModel(model: string): Promise<boolean> {
 
 export async function autoPull(model: string): Promise<void> {
   console.log(`Pulling model ${model}...`)
-  const res = await ollamaFetch("/api/pull", { name: model, stream: false })
+  const res = await ollamaFetch("/api/pull", { name: model, stream: false }, 0)
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`Failed to pull ${model}: ${text}`)
@@ -58,8 +60,7 @@ export async function autoPull(model: string): Promise<void> {
 export async function ensureModel(model: string): Promise<void> {
   const running = await checkOllama()
   if (!running) {
-    console.error("Ollama is not running. Start it with `ollama serve`.")
-    process.exit(1)
+    throw new Error("Ollama is not running. Start it with `ollama serve`.")
   }
   if (!(await checkModel(model))) {
     await autoPull(model)

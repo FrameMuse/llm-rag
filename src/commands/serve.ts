@@ -7,12 +7,10 @@ import { reindexFile, removeFile } from "./index"
 
 export async function serveCommand(watchMode = false): Promise<void> {
   const ragDir = requireRagDir()
-  console.error(`rag serve: starting MCP server for ${ragDir}`)
-  await startMcpServer(ragDir)
+  const config = readConfig(ragDir)
+  const projectDir = getProjectDir(ragDir)
 
   if (watchMode) {
-    const config = readConfig(ragDir)
-    const projectDir = getProjectDir(ragDir)
     const dataDir = getDataDir(ragDir)
     const conn = await initStore(dbPath(dataDir))
     const table = await openTable(conn, config.name)
@@ -20,10 +18,20 @@ export async function serveCommand(watchMode = false): Promise<void> {
     const watcher = watch(projectDir, {
       ignored: /(^|[/\\])(\.|node_modules)/,
       persistent: true,
+      awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
     })
     watcher.on("change", (p) => reindexFile(ragDir, config, projectDir, p, conn, table))
     watcher.on("add", (p) => reindexFile(ragDir, config, projectDir, p, conn, table))
     watcher.on("unlink", (p) => removeFile(ragDir, config, projectDir, p, conn, table))
     console.error("rag serve: watching for changes...")
+
+    process.on("SIGINT", () => {
+      watcher.close()
+      conn.close()
+      process.exit(0)
+    })
   }
+
+  console.error(`rag serve: starting MCP server for ${ragDir}`)
+  await startMcpServer(ragDir)
 }

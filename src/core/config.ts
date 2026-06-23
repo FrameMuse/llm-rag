@@ -31,8 +31,7 @@ export const DEFAULT_CONFIG: RagConfig = {
 export function readConfig(ragDir: string): RagConfig {
   const path = join(ragDir, "config.json")
   if (!existsSync(path)) {
-    console.error(`Missing ${path}. Run \`rag init\` first.`)
-    process.exit(1)
+    throw new Error(`Missing ${path}. Run \`rag init\` first.`)
   }
   return JSON.parse(readFileSync(path, "utf-8"))
 }

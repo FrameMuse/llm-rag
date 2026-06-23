@@ -66,8 +66,8 @@ export async function addChunks(
 export async function createFtsIndex(table: Table): Promise<void> {
   try {
     await table.createIndex("content", { config: Index.fts() })
-  } catch {
-    // already exists — fine
+  } catch (e) {
+    console.error("FTS index creation failed (may already exist):", e)
   }
 }
 

@@ -14,8 +14,7 @@ export function findRagDir(start?: string): string | null {
 export function requireRagDir(start?: string): string {
   const ragDir = findRagDir(start)
   if (!ragDir) {
-    console.error("No .rag/ found. Run `rag init` first.")
-    process.exit(1)
+    throw new Error("No .rag/ found. Run `rag init` first.")
   }
   return ragDir
 }

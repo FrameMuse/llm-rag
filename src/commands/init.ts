@@ -1,5 +1,6 @@
 import { resolve, basename } from "path"
-import { ensureRagDir, getProjectDir, writeMcpJson } from "../core/config"
+import { existsSync } from "fs"
+import { ensureRagDir, getProjectDir, writeMcpJson, readConfig, writeConfig } from "../core/config"
 
 export async function initCommand(args: string[]): Promise<void> {
   let dir = process.cwd()
@@ -15,13 +16,31 @@ export async function initCommand(args: string[]): Promise<void> {
   }
 
   const defaultName = basename(dir)
-  const name = defaultName
 
-  const ragDir = ensureRagDir(dir, name, pattern)
+  if (existsSync(resolve(dir, ".rag", "config.json"))) {
+    console.log(".rag/ already exists. Updating pattern and name...")
+    const existingDir = resolve(dir, ".rag")
+    const config = readConfig(existingDir)
+    if (pattern) config.pattern = pattern
+    config.name = defaultName
+    writeConfig(existingDir, config)
+    writeMcpJson(existingDir, {
+      [defaultName]: {
+        type: "local",
+        command: ["rag", "serve"],
+        cwd: dir,
+        enabled: true,
+      },
+    })
+    console.log(`Updated .rag/ for '${defaultName}' at ${existingDir}`)
+    return
+  }
+
+  const ragDir = ensureRagDir(dir, defaultName, pattern)
   const projectDir = getProjectDir(ragDir)
 
   writeMcpJson(ragDir, {
-    [name]: {
+    [defaultName]: {
       type: "local",
       command: ["rag", "serve"],
       cwd: projectDir,
@@ -29,7 +48,7 @@ export async function initCommand(args: string[]): Promise<void> {
     },
   })
 
-  console.log(`Initialized .rag/ for '${name}' at ${ragDir}`)
+  console.log(`Initialized .rag/ for '${defaultName}' at ${ragDir}`)
   console.log(`  config.json   — index configuration`)
   console.log(`  mcp.json      — MCP server config (for opencode.json)`)
   console.log(`  .gitignore    — excludes binary data from git`)
