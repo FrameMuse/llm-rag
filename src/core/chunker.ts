@@ -44,6 +44,11 @@ function chunkId(filePath: string, heading: string): string {
     .slice(0, 16)
 }
 
+function buildHeader(filePath: string, heading: string, parent: string | null): string {
+  const parts = [filePath, parent, heading].filter(Boolean)
+  return `[${parts.join(" > ")}]\n`
+}
+
 // ── file walking ──────────────────────────────────────
 
 export function walkFiles(projectDir: string, pattern: string): string[] {
@@ -127,7 +132,8 @@ export function chunkMdFile(filePath: string, collection: string, projectDir: st
       id: chunkId(relPath, "__body__"),
       collection, filePath: relPath,
       heading: "__body__", parentHeading: null,
-      content: trimmed, tokens: estimateTokens(trimmed),
+      content: buildHeader(relPath, "__body__", null) + trimmed,
+      tokens: estimateTokens(trimmed),
     }]
   }
 
@@ -152,7 +158,8 @@ export function chunkMdFile(filePath: string, collection: string, projectDir: st
       id: chunkId(relPath, h.text),
       collection, filePath: relPath,
       heading: h.text, parentHeading: parent,
-      content: sectionContent, tokens: estimateTokens(sectionContent),
+      content: buildHeader(relPath, h.text, parent) + sectionContent,
+      tokens: estimateTokens(sectionContent),
     })
   }
 
@@ -181,7 +188,7 @@ export function chunkTsFile(filePath: string, collection: string, projectDir: st
         id: chunkId(relPath, "__imports__"),
         collection, filePath: relPath,
         heading: "__imports__", parentHeading: null,
-        content: text,
+        content: buildHeader(relPath, "__imports__", null) + text,
         tokens: estimateTokens(text),
       })
     }
@@ -234,7 +241,7 @@ export function chunkTsFile(filePath: string, collection: string, projectDir: st
       id: chunkId(relPath, d.heading),
       collection, filePath: relPath,
       heading: d.heading, parentHeading: null,
-      content,
+      content: buildHeader(relPath, d.heading, null) + content,
       tokens: estimateTokens(content),
     })
   }
@@ -268,7 +275,8 @@ export function chunkJsonFile(filePath: string, collection: string, projectDir: 
         id: chunkId(relPath, "__body__"),
         collection, filePath: relPath,
         heading: "__body__", parentHeading: null,
-        content: sourceText, tokens: estimateTokens(sourceText),
+        content: buildHeader(relPath, "__body__", null) + sourceText,
+        tokens: estimateTokens(sourceText),
       }]
     }
 
@@ -278,7 +286,8 @@ export function chunkJsonFile(filePath: string, collection: string, projectDir: 
         id: chunkId(relPath, "__body__"),
         collection, filePath: relPath,
         heading: "__body__", parentHeading: null,
-        content: sourceText, tokens: estimateTokens(sourceText),
+        content: buildHeader(relPath, "__body__", null) + sourceText,
+        tokens: estimateTokens(sourceText),
       }]
     }
 
@@ -286,7 +295,7 @@ export function chunkJsonFile(filePath: string, collection: string, projectDir: 
       id: chunkId(relPath, key),
       collection, filePath: relPath,
       heading: key, parentHeading: null,
-      content: JSON.stringify(parsed[key], null, 2),
+      content: buildHeader(relPath, key, null) + JSON.stringify(parsed[key], null, 2),
       tokens: estimateTokens(JSON.stringify(parsed[key])),
     }))
   } catch {
@@ -314,7 +323,7 @@ export function chunkTextFile(filePath: string, collection: string, projectDir: 
       collection, filePath: relPath,
       heading: `L${i + 1}-L${end}`,
       parentHeading: null,
-      content,
+      content: buildHeader(relPath, `L${i + 1}-L${end}`, null) + content,
       tokens: estimateTokens(content),
     })
   }

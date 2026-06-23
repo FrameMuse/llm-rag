@@ -3,42 +3,103 @@ import { resolve } from "path"
 import type { RagConfig } from "../core/config"
 import { getDataDir } from "../core/config"
 import { embed, chat, ensureModel } from "../core/embedder"
-import { initStore, tableExists, openTable, searchTable, listDocumentPaths, dbPath } from "../core/store"
+import { initStore, tableExists, openTable, hybridSearchTable, listDocumentPaths, dbPath } from "../core/store"
+import type { SearchResult } from "../core/store"
 
-const RAG_CHUNKS = 16
+const RAG_CHUNKS = 12
 
-function diversify(
-  results: Awaited<ReturnType<typeof searchTable>>,
-): Awaited<ReturnType<typeof searchTable>> {
-  const picked: typeof results = []
+// ── diversity reranker ────────────────────────────────
+
+function diversify(results: SearchResult[], limit = RAG_CHUNKS): SearchResult[] {
+  const picked: SearchResult[] = []
   const seenFiles = new Set<string>()
-  const seenHeadings = new Set<string>()
+  const seenIds = new Set<string>()
 
   for (const r of results) {
-    const key = `${r.filePath}::${r.heading}`
-    if (seenHeadings.has(key)) continue
+    if (seenIds.has(r.id)) continue
     if (picked.length < 4 || !seenFiles.has(r.filePath)) {
       picked.push(r)
       seenFiles.add(r.filePath)
-      seenHeadings.add(key)
-      if (picked.length >= RAG_CHUNKS) break
+      seenIds.add(r.id)
+      if (picked.length >= limit) break
     }
   }
 
   for (const r of results) {
-    if (picked.length >= RAG_CHUNKS) break
-    const key = `${r.filePath}::${r.heading}`
-    if (seenHeadings.has(key)) continue
+    if (picked.length >= limit) break
+    if (seenIds.has(r.id)) continue
     picked.push(r)
-    seenHeadings.add(key)
+    seenIds.add(r.id)
   }
 
   return picked
 }
 
+// ── query expansion ───────────────────────────────────
+
+async function expandQuery(question: string, config: RagConfig): Promise<string[]> {
+  const prompt = "Generate 2 alternative concise phrasings of this question that cover different aspects. Return each on a new line, no numbering."
+  try {
+    const expansion = await chat(prompt, `Original: ${question}`, config.ragModel)
+    const alternates = expansion.split("\n").map(l => l.trim()).filter(l => l.length > 10)
+    return [question, ...alternates.slice(0, 2)]
+  } catch {
+    return [question]
+  }
+}
+
+// ── query decomposition ───────────────────────────────
+
+async function decomposeQuestion(question: string, config: RagConfig): Promise<string[]> {
+  const prompt = "Break this question into 3 subtopics that each cover a distinct aspect. Return one per line, no numbering."
+  try {
+    const result = await chat(prompt, `Question: ${question}`, config.ragModel)
+    const topics = result.split("\n").map(l => l.trim()).filter(l => l.length > 5)
+    return topics.slice(0, 3)
+  } catch {
+    return []
+  }
+}
+
+// ── multi-query retrieval ─────────────────────────────
+
+async function retrieveExpanded(
+  ragDir: string,
+  config: RagConfig,
+  question: string,
+): Promise<SearchResult[]> {
+  const dataDir = getDataDir(ragDir)
+  const conn = await initStore(dbPath(dataDir))
+  const exists = await tableExists(conn, config.name)
+  if (!exists) return []
+  const table = await openTable(conn, config.name)
+
+  const queries = await expandQuery(question, config)
+  const subtopics = await decomposeQuestion(question, config)
+  const all = [...queries, ...subtopics]
+
+  const allRaw: SearchResult[] = []
+  const seen = new Set<string>()
+
+  for (const q of all) {
+    const vec = await embed(q, config.embedModel)
+    const results = await hybridSearchTable(table, q, vec, 8)
+    for (const r of results) {
+      if (!seen.has(r.id)) {
+        allRaw.push(r)
+        seen.add(r.id)
+      }
+    }
+  }
+
+  return diversify(allRaw, RAG_CHUNKS)
+}
+
+// ── search ────────────────────────────────────────────
+
 export async function handleSearch(
   ragDir: string,
-  projectDir: string,
+  _projectDir: string,
   config: RagConfig,
   query: string,
   limit: number,
@@ -50,9 +111,9 @@ export async function handleSearch(
     return { query, results: [], error: "No index found. Run `rag index` first." }
   }
   const table = await openTable(conn, config.name)
+  const vec = await embed(query, config.embedModel)
 
-  const queryVector = await embed(query, config.embedModel)
-  const results = await searchTable(table, queryVector, limit)
+  const results = await hybridSearchTable(table, query, vec, limit)
 
   return {
     query,
@@ -60,39 +121,36 @@ export async function handleSearch(
       filePath: r.filePath,
       heading: r.heading,
       snippet: r.content.slice(0, 300),
-      score: Math.round((1 - i / limit) * 1000) / 1000,
+      score: Math.round((1 - i / results.length) * 1000) / 1000,
     })),
   }
 }
 
+// ── RAG query ─────────────────────────────────────────
+
 export async function handleQuery(
   ragDir: string,
-  projectDir: string,
+  _projectDir: string,
   config: RagConfig,
   question: string,
 ) {
-  const dataDir = getDataDir(ragDir)
-  const conn = await initStore(dbPath(dataDir))
-  const exists = await tableExists(conn, config.name)
-  if (!exists) {
+  await ensureModel(config.ragModel)
+
+  const results = await retrieveExpanded(ragDir, config, question)
+
+  if (results.length === 0) {
     return { answer: "No index found. Run `rag index` first.", sources: [] }
   }
-  const table = await openTable(conn, config.name)
-
-  const queryVector = await embed(question, config.embedModel)
-  const raw = await searchTable(table, queryVector, RAG_CHUNKS * 2)
-  const results = diversify(raw)
-
-  await ensureModel(config.ragModel)
 
   const context = results
     .map((r, i) => `[${i + 1}] ${r.filePath} > ${r.heading}\n${r.content}`)
     .join("\n\n---\n\n")
 
   const system = `You are a knowledgeable assistant with access to documentation for "${config.name}".
-Answer the user's question based ONLY on the provided context.
-If the context doesn't contain enough information, say so.
-Cite your sources using the [N] references.`
+Answer based ONLY on the provided context.
+If the context lacks information, state what is missing — do not make up details.
+Cite sources using [N] references.
+Do not invent concepts not present in the context.`
 
   const answer = await chat(system, `Context:\n${context}\n\nQuestion: ${question}`, config.ragModel)
 
@@ -106,6 +164,8 @@ Cite your sources using the [N] references.`
     })),
   }
 }
+
+// ── document listing ──────────────────────────────────
 
 export async function handleListDocuments(
   ragDir: string,

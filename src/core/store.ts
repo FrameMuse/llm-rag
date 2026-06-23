@@ -1,7 +1,19 @@
 import * as lancedb from "@lancedb/lancedb"
+import { Index } from "@lancedb/lancedb"
 import type { Table } from "@lancedb/lancedb"
 import { join } from "path"
 import type { Chunk } from "./chunker"
+
+export interface SearchResult {
+  id: string
+  filePath: string
+  heading: string
+  parentHeading: string | null
+  content: string
+  tokens: number
+  _distance: number
+  _score?: number
+}
 
 export async function initStore(path: string): Promise<lancedb.Connection> {
   return lancedb.connect(path)
@@ -51,17 +63,16 @@ export async function addChunks(
   await table.add(records)
 }
 
-export async function searchTable(
-  table: Table,
-  queryVector: number[],
-  limit: number,
-): Promise<{ id: string; filePath: string; heading: string; parentHeading: string | null; content: string; tokens: number; _distance: number }[]> {
-  const results = await table
-    .vectorSearch(queryVector)
-    .limit(limit)
-    .toArray()
+export async function createFtsIndex(table: Table): Promise<void> {
+  try {
+    await table.createIndex("content", { config: Index.fts() })
+  } catch {
+    // already exists — fine
+  }
+}
 
-  return results.map((r: Record<string, unknown>) => ({
+function formatResult(r: Record<string, unknown>): SearchResult {
+  return {
     id: r.id as string,
     filePath: r.filePath as string,
     heading: r.heading as string,
@@ -69,7 +80,61 @@ export async function searchTable(
     content: r.content as string,
     tokens: r.tokens as number,
     _distance: r._distance as number,
-  }))
+    _score: r._score as number | undefined,
+  }
+}
+
+export async function searchTable(
+  table: Table,
+  queryVector: number[],
+  limit: number,
+): Promise<SearchResult[]> {
+  const results = await table
+    .vectorSearch(queryVector)
+    .limit(limit)
+    .toArray()
+
+  return results.map(formatResult)
+}
+
+export async function hybridSearchTable(
+  table: Table,
+  query: string,
+  queryVector: number[],
+  limit: number,
+): Promise<SearchResult[]> {
+  const K = limit * 2
+
+  const [vecRaw, ftsRaw] = await Promise.all([
+    table.vectorSearch(queryVector).limit(K).toArray(),
+    table.search(query, "fts", ["content"]).limit(K).toArray(),
+  ])
+
+  const scores = new Map<string, { result: Record<string, unknown>; rank: number; score: number }>()
+  let idx = 0
+
+  for (const r of vecRaw as Record<string, unknown>[]) {
+    if (!scores.has(r.id as string)) {
+      scores.set(r.id as string, { result: r, rank: idx, score: 0 })
+    }
+    idx++
+  }
+
+  idx = 0
+  for (const r of ftsRaw as Record<string, unknown>[]) {
+    const existing = scores.get(r.id as string)
+    if (existing) {
+      existing.score += 1 / (60 + idx)
+    } else {
+      scores.set(r.id as string, { result: r, rank: idx, score: 1 / (60 + idx) })
+    }
+    idx++
+  }
+
+  return [...scores.values()]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((s) => ({ ...formatResult(s.result), _score: s.score }))
 }
 
 export async function deleteChunksForFile(

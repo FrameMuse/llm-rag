@@ -2,7 +2,7 @@ import { walkFiles, chunkFile } from "../core/chunker"
 import { requireRagDir } from "../core/ragdir"
 import { readConfig, writeConfig, getProjectDir, getDataDir } from "../core/config"
 import { ensureModel, embed, embedBatch } from "../core/embedder"
-import { initStore, createTableFromRecords, addChunks, deleteChunksForFile, chunkToRecord, openTable, dbPath } from "../core/store"
+import { initStore, createTableFromRecords, addChunks, deleteChunksForFile, createFtsIndex, chunkToRecord, openTable, dbPath } from "../core/store"
 import { ProgressBar } from "../utils/output"
 import { relative } from "path"
 
@@ -50,6 +50,8 @@ export async function indexCommand(watchMode = false): Promise<void> {
   }
 
   await createTableFromRecords(conn, config.name, records)
+  const table = await openTable(conn, config.name)
+  await createFtsIndex(table)
 
   config.indexedAt = new Date().toISOString()
   config.fileCount = files.length
