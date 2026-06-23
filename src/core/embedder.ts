@@ -143,15 +143,18 @@ export async function chat(
   system: string,
   prompt: string,
   model: string,
+  temperature?: number,
 ): Promise<string> {
-  const res = await ollamaFetch("/api/chat", {
+  const body: Record<string, unknown> = {
     model,
     messages: [
       { role: "system", content: system },
       { role: "user", content: prompt },
     ],
     stream: false,
-  })
+  }
+  if (temperature !== undefined) body.temperature = temperature
+  const res = await ollamaFetch("/api/chat", body)
   const data: OllamaChatResponse = await res.json()
   return data.message.content
 }

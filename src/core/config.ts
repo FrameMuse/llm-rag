@@ -7,6 +7,7 @@ export interface RagConfig {
   ragModel: string
   pattern: string
   chunks: number
+  temperature: number
   indexedAt: string | null
   fileCount: number
   chunkCount: number
@@ -25,6 +26,7 @@ export const DEFAULT_CONFIG: RagConfig = {
   ragModel: "llama3.2:3b",
   pattern: "",
   chunks: 8,
+  temperature: 0.3,
   indexedAt: null,
   fileCount: 0,
   chunkCount: 0,
