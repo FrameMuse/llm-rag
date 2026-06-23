@@ -57,12 +57,14 @@ export async function mcpCommand(args: string[]): Promise<void> {
     case "search": {
       const query = positional.slice(1).join(" ")
       if (!query) {
-        console.error("Usage: rag mcp search <query> [--level N] [--chunks N] [--limit N]")
+        console.error("Usage: rag mcp search <query> [--chunks N] [--limit N]")
         process.exit(1)
       }
-      const opts: Partial<{ chunks: number; embedModel: string }> = {}
+      const opts: Partial<{ chunks: number }> = {}
       if (chunks) opts.chunks = chunks
-      if (models) opts.embedModel = models.embedModel
+      if (level !== undefined) {
+        console.error("warning: --level on search has no effect. Use `rag index --level N` to change embed model, or `rag mcp query` for RAG with level.")
+      }
       const result = await handlers.handleSearch(ragDir, projectDir, config, query, opts)
       for (const r of result.results) {
         console.log(`[${r.score.toFixed(2)}] ${r.filePath} > ${r.heading}`)
@@ -78,9 +80,9 @@ export async function mcpCommand(args: string[]): Promise<void> {
         console.error("Usage: rag mcp query <question> [--level N] [--chunks N]")
         process.exit(1)
       }
-      const opts: Partial<{ chunks: number; embedModel: string; ragModel: string }> = {}
+      const opts: Partial<{ chunks: number; ragModel: string }> = {}
       if (chunks) opts.chunks = chunks
-      if (models) { opts.embedModel = models.embedModel; opts.ragModel = models.ragModel }
+      if (models) opts.ragModel = models.ragModel
       const result = await handlers.handleQuery(ragDir, projectDir, config, question, opts)
       console.log(result.answer)
       console.log()
