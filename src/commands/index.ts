@@ -1,22 +1,15 @@
 import { walkFiles, chunkFile } from "../core/chunker"
 import { requireRagDir } from "../core/ragdir"
 import { readConfig, writeConfig, getProjectDir, getDataDir } from "../core/config"
-import { resolveLevel } from "../core/models"
 import { ensureModel, embed, embedBatch } from "../core/embedder"
 import { initStore, createTableFromRecords, addChunks, deleteChunksForFile, createFtsIndex, chunkToRecord, openTable, dbPath } from "../core/store"
 import { ProgressBar } from "../utils/output"
 import { relative } from "path"
 
-export async function indexCommand(watchMode = false, level?: number): Promise<void> {
+export async function indexCommand(watchMode = false): Promise<void> {
   const ragDir = requireRagDir()
   const config = readConfig(ragDir)
   const projectDir = getProjectDir(ragDir)
-
-  if (level !== undefined) {
-    const models = resolveLevel(level)
-    config.embedModel = models.embedModel
-    writeConfig(ragDir, config)
-  }
 
   console.log(`Indexing '${config.name}' (pattern: ${config.pattern || "*"})...`)
   console.log(`  Project: ${projectDir}`)

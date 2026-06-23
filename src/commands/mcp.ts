@@ -1,19 +1,13 @@
 import { requireRagDir } from "../core/ragdir"
 import { readConfig, getProjectDir, readMcpJson } from "../core/config"
-import { resolveLevel } from "../core/models"
 import * as handlers from "../mcp/handlers"
 
-function parseFlags(args: string[]): { positional: string[]; level?: number; chunks?: number } {
-  let level: number | undefined
+function parseFlags(args: string[]): { positional: string[]; chunks?: number } {
   let chunks: number | undefined
   const skip = new Set<number>()
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--level" && i + 1 < args.length) {
-      level = parseInt(args[i + 1], 10)
-      skip.add(i).add(i + 1)
-      i++
-    } else if (args[i] === "--chunks" && i + 1 < args.length) {
+    if (args[i] === "--chunks" && i + 1 < args.length) {
       chunks = parseInt(args[i + 1], 10)
       skip.add(i).add(i + 1)
       i++
@@ -24,7 +18,7 @@ function parseFlags(args: string[]): { positional: string[]; level?: number; chu
   }
 
   const positional = args.filter((_, i) => !skip.has(i))
-  return { positional, level, chunks }
+  return { positional, chunks }
 }
 
 export async function mcpCommand(args: string[]): Promise<void> {
@@ -32,14 +26,13 @@ export async function mcpCommand(args: string[]): Promise<void> {
   const config = readConfig(ragDir)
   const projectDir = getProjectDir(ragDir)
 
-  const { positional, level, chunks } = parseFlags(args)
-  const models = level !== undefined ? resolveLevel(level) : undefined
+  const { positional, chunks } = parseFlags(args)
 
   const tool = positional[0]
   if (!tool || tool === "help") {
     console.error("Usage: rag mcp <tool> [args...]")
     console.error("Tools: search, query, list-documents, get-document, config")
-    console.error("Flags: --level N, --chunks N, --limit N (for search)")
+    console.error("Flags: --chunks N, --limit N (for search)")
     process.exit(1)
   }
 
@@ -62,9 +55,6 @@ export async function mcpCommand(args: string[]): Promise<void> {
       }
       const opts: Partial<{ chunks: number }> = {}
       if (chunks) opts.chunks = chunks
-      if (level !== undefined) {
-        console.error("warning: --level on search has no effect. Use `rag index --level N` to change embed model, or `rag mcp query` for RAG with level.")
-      }
       const result = await handlers.handleSearch(ragDir, projectDir, config, query, opts)
       for (const r of result.results) {
         console.log(`[${r.score.toFixed(2)}] ${r.filePath} > ${r.heading}`)
@@ -77,12 +67,11 @@ export async function mcpCommand(args: string[]): Promise<void> {
     case "query": {
       const question = positional.slice(1).join(" ")
       if (!question) {
-        console.error("Usage: rag mcp query <question> [--level N] [--chunks N]")
+        console.error("Usage: rag mcp query <question> [--chunks N]")
         process.exit(1)
       }
-      const opts: Partial<{ chunks: number; ragModel: string }> = {}
+      const opts: Partial<{ chunks: number }> = {}
       if (chunks) opts.chunks = chunks
-      if (models) opts.ragModel = models.ragModel
       const result = await handlers.handleQuery(ragDir, projectDir, config, question, opts)
       console.log(result.answer)
       console.log()
