@@ -1,16 +1,45 @@
 import { requireRagDir } from "../core/ragdir"
 import { readConfig, getProjectDir, readMcpJson } from "../core/config"
+import { resolveLevel } from "../core/models"
 import * as handlers from "../mcp/handlers"
+
+function parseFlags(args: string[]): { positional: string[]; level?: number; chunks?: number } {
+  let level: number | undefined
+  let chunks: number | undefined
+  const skip = new Set<number>()
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--level" && i + 1 < args.length) {
+      level = parseInt(args[i + 1], 10)
+      skip.add(i).add(i + 1)
+      i++
+    } else if (args[i] === "--chunks" && i + 1 < args.length) {
+      chunks = parseInt(args[i + 1], 10)
+      skip.add(i).add(i + 1)
+      i++
+    } else if (args[i] === "--limit" && i + 1 < args.length) {
+      skip.add(i).add(i + 1)
+      i++
+    }
+  }
+
+  const positional = args.filter((_, i) => !skip.has(i))
+  return { positional, level, chunks }
+}
 
 export async function mcpCommand(args: string[]): Promise<void> {
   const ragDir = requireRagDir()
   const config = readConfig(ragDir)
   const projectDir = getProjectDir(ragDir)
 
-  const tool = args[0]
+  const { positional, level, chunks } = parseFlags(args)
+  const models = level !== undefined ? resolveLevel(level) : undefined
+
+  const tool = positional[0]
   if (!tool || tool === "help") {
     console.error("Usage: rag mcp <tool> [args...]")
     console.error("Tools: search, query, list-documents, get-document, config")
+    console.error("Flags: --level N, --chunks N, --limit N (for search)")
     process.exit(1)
   }
 
@@ -26,15 +55,15 @@ export async function mcpCommand(args: string[]): Promise<void> {
     }
 
     case "search": {
-      const limitIdx = args.indexOf("--limit")
-      const limit = limitIdx > 0 ? parseInt(args[limitIdx + 1], 10) || 10 : 10
-      const skip = limitIdx > 0 ? [limitIdx, limitIdx + 1] : []
-      const query = args.slice(1).filter((_, i) => !skip.includes(i + 1)).join(" ")
+      const query = positional.slice(1).join(" ")
       if (!query) {
-        console.error("Usage: rag mcp search <query> [--limit N]")
+        console.error("Usage: rag mcp search <query> [--level N] [--chunks N] [--limit N]")
         process.exit(1)
       }
-      const result = await handlers.handleSearch(ragDir, projectDir, config, query, limit)
+      const opts: Partial<{ chunks: number; embedModel: string }> = {}
+      if (chunks) opts.chunks = chunks
+      if (models) opts.embedModel = models.embedModel
+      const result = await handlers.handleSearch(ragDir, projectDir, config, query, opts)
       for (const r of result.results) {
         console.log(`[${r.score.toFixed(2)}] ${r.filePath} > ${r.heading}`)
         console.log(`    ${r.snippet.replace(/\n/g, "\n    ")}`)
@@ -44,12 +73,15 @@ export async function mcpCommand(args: string[]): Promise<void> {
     }
 
     case "query": {
-      const question = args.slice(1).join(" ")
+      const question = positional.slice(1).join(" ")
       if (!question) {
-        console.error("Usage: rag mcp query <question>")
+        console.error("Usage: rag mcp query <question> [--level N] [--chunks N]")
         process.exit(1)
       }
-      const result = await handlers.handleQuery(ragDir, projectDir, config, question)
+      const opts: Partial<{ chunks: number; embedModel: string; ragModel: string }> = {}
+      if (chunks) opts.chunks = chunks
+      if (models) { opts.embedModel = models.embedModel; opts.ragModel = models.ragModel }
+      const result = await handlers.handleQuery(ragDir, projectDir, config, question, opts)
       console.log(result.answer)
       console.log()
       console.log("Sources:")
@@ -68,7 +100,7 @@ export async function mcpCommand(args: string[]): Promise<void> {
     }
 
     case "get-document": {
-      const path = args[1]
+      const path = positional[1]
       if (!path) {
         console.error("Usage: rag mcp get-document <path>")
         process.exit(1)

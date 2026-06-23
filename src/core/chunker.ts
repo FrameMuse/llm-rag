@@ -1,5 +1,6 @@
-import { readdirSync } from "fs"
+import { readdirSync, existsSync } from "fs"
 import { readFile } from "fs/promises"
+import { execSync } from "child_process"
 import matter from "gray-matter"
 import { join, relative, extname } from "path"
 import { createHash } from "crypto"
@@ -52,7 +53,27 @@ function buildHeader(filePath: string, heading: string, parent: string | null): 
 
 // ── file walking ──────────────────────────────────────
 
+function matchesExtension(filePath: string, pattern: string, projectDir: string): boolean {
+  const ext = extname(filePath).toLowerCase()
+  if (!pattern || pattern === "*") return SUPPORTED_EXTENSIONS.has(ext)
+  if (pattern.startsWith("*.")) return ext === pattern.slice(1)
+  return filePath.endsWith(extname(pattern))
+}
+
 export function walkFiles(projectDir: string, pattern: string): string[] {
+  // Try git ls-files for .gitignore respect
+  if (existsSync(join(projectDir, ".git"))) {
+    try {
+      const out = execSync("git", ["-C", projectDir, "ls-files", "--cached", "--others", "--exclude-standard"], {
+        encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000,
+      })
+      const files = out.trim().split("\n").filter(Boolean).map((f: string) => join(projectDir, f))
+      if (files.length > 0) return files.filter((f: string) => matchesExtension(f, pattern, projectDir)).sort()
+    } catch {
+      // fall through to manual walk
+    }
+  }
+
   const Glob = (Bun as any).Glob
 
   if (pattern && pattern !== "*" && Glob) {
@@ -70,13 +91,8 @@ export function walkFiles(projectDir: string, pattern: string): string[] {
       if (entry.isDirectory()) {
         if (entry.name.startsWith(".") || IGNORE_DIRS.has(entry.name)) continue
         walk(fullPath)
-      } else {
-        const ext = extname(entry.name).toLowerCase()
-        if (!pattern || pattern === "*") {
-          if (SUPPORTED_EXTENSIONS.has(ext)) files.push(fullPath)
-        } else {
-          if (entry.name.endsWith(extname(pattern))) files.push(fullPath)
-        }
+      } else if (matchesExtension(fullPath, pattern, projectDir)) {
+        files.push(fullPath)
       }
     }
   }

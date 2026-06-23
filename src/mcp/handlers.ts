@@ -1,16 +1,14 @@
 import { readFileSync } from "fs"
-import { resolve } from "path"
+import { resolve, relative } from "path"
 import type { RagConfig } from "../core/config"
 import { getDataDir } from "../core/config"
 import { embed, chat, ensureModel } from "../core/embedder"
 import { initStore, tableExists, openTable, hybridSearchTable, listDocumentPaths, dbPath } from "../core/store"
 import type { SearchResult } from "../core/store"
 
-const RAG_CHUNKS = 12
-
 // ── diversity reranker ────────────────────────────────
 
-function diversify(results: SearchResult[], limit = RAG_CHUNKS): SearchResult[] {
+function diversify(results: SearchResult[], limit: number): SearchResult[] {
   const picked: SearchResult[] = []
   const seenFiles = new Set<string>()
   const seenIds = new Set<string>()
@@ -37,10 +35,10 @@ function diversify(results: SearchResult[], limit = RAG_CHUNKS): SearchResult[] 
 
 // ── query expansion ───────────────────────────────────
 
-async function expandQuery(question: string, config: RagConfig): Promise<string[]> {
+async function expandQuery(question: string, ragModel: string): Promise<string[]> {
   const prompt = "Generate 2 alternative concise phrasings of this question that cover different aspects. Return each on a new line, no numbering."
   try {
-    const expansion = await chat(prompt, `Original: ${question}`, config.ragModel)
+    const expansion = await chat(prompt, `Original: ${question}`, ragModel)
     const alternates = expansion.split("\n").map(l => l.trim()).filter(l => l.length > 10)
     return [question, ...alternates.slice(0, 2)]
   } catch {
@@ -50,10 +48,10 @@ async function expandQuery(question: string, config: RagConfig): Promise<string[
 
 // ── query decomposition ───────────────────────────────
 
-async function decomposeQuestion(question: string, config: RagConfig): Promise<string[]> {
+async function decomposeQuestion(question: string, ragModel: string): Promise<string[]> {
   const prompt = "Break this question into 3 subtopics that each cover a distinct aspect. Return one per line, no numbering."
   try {
-    const result = await chat(prompt, `Question: ${question}`, config.ragModel)
+    const result = await chat(prompt, `Question: ${question}`, ragModel)
     const topics = result.split("\n").map(l => l.trim()).filter(l => l.length > 5)
     return topics.slice(0, 3)
   } catch {
@@ -67,24 +65,30 @@ async function retrieveExpanded(
   ragDir: string,
   config: RagConfig,
   question: string,
+  chunks: number,
+  embedModel?: string,
+  ragModel?: string,
 ): Promise<SearchResult[]> {
-  await ensureModel(config.embedModel)
+  const em = embedModel || config.embedModel
+  const rm = ragModel || config.ragModel
+  await ensureModel(em)
   const dataDir = getDataDir(ragDir)
   const conn = await initStore(dbPath(dataDir))
   const exists = await tableExists(conn, config.name)
   if (!exists) return []
   const table = await openTable(conn, config.name)
 
-  const queries = await expandQuery(question, config)
-  const subtopics = await decomposeQuestion(question, config)
+  const queries = await expandQuery(question, rm)
+  const subtopics = await decomposeQuestion(question, rm)
   const all = [...queries, ...subtopics]
 
   const allRaw: SearchResult[] = []
   const seen = new Set<string>()
+  const perQuery = Math.ceil(chunks / 2)
 
   for (const q of all) {
-    const vec = await embed(q, config.embedModel)
-    const results = await hybridSearchTable(table, q, vec, 8)
+    const vec = await embed(q, em)
+    const results = await hybridSearchTable(table, q, vec, perQuery)
     for (const r of results) {
       if (!seen.has(r.id)) {
         allRaw.push(r)
@@ -93,7 +97,7 @@ async function retrieveExpanded(
     }
   }
 
-  return diversify(allRaw, RAG_CHUNKS)
+  return diversify(allRaw, chunks)
 }
 
 // ── search ────────────────────────────────────────────
@@ -103,9 +107,12 @@ export async function handleSearch(
   _projectDir: string,
   config: RagConfig,
   query: string,
-  limit: number,
+  opts?: { chunks?: number; embedModel?: string },
 ) {
-  await ensureModel(config.embedModel)
+  const chunks = opts?.chunks ?? config.chunks
+  const embedModel = opts?.embedModel ?? config.embedModel
+
+  await ensureModel(embedModel)
   const dataDir = getDataDir(ragDir)
   const conn = await initStore(dbPath(dataDir))
   const exists = await tableExists(conn, config.name)
@@ -113,9 +120,9 @@ export async function handleSearch(
     return { query, results: [], error: "No index found. Run `rag index` first." }
   }
   const table = await openTable(conn, config.name)
-  const vec = await embed(query, config.embedModel)
+  const vec = await embed(query, embedModel)
 
-  const results = await hybridSearchTable(table, query, vec, Math.min(limit, 20))
+  const results = await hybridSearchTable(table, query, vec, Math.min(chunks, 20))
 
   return {
     query,
@@ -135,10 +142,15 @@ export async function handleQuery(
   _projectDir: string,
   config: RagConfig,
   question: string,
+  opts?: { chunks?: number; embedModel?: string; ragModel?: string },
 ) {
-  await ensureModel(config.ragModel)
+  const chunks = opts?.chunks ?? config.chunks
+  const ragModel = opts?.ragModel ?? config.ragModel
+  const embedModel = opts?.embedModel ?? config.embedModel
 
-  const results = await retrieveExpanded(ragDir, config, question)
+  await ensureModel(ragModel)
+
+  const results = await retrieveExpanded(ragDir, config, question, chunks, embedModel, ragModel)
 
   if (results.length === 0) {
     return { answer: "No index found. Run `rag index` first.", sources: [] }
@@ -154,7 +166,7 @@ If the context lacks information, state what is missing — do not make up detai
 Cite sources using [N] references.
 Do not invent concepts not present in the context.`
 
-  const answer = await chat(system, `Context:\n${context}\n\nQuestion: ${question}`, config.ragModel)
+  const answer = await chat(system, `Context:\n${context}\n\nQuestion: ${question}`, ragModel)
 
   return {
     answer,

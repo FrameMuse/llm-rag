@@ -6,6 +6,7 @@ export interface RagConfig {
   embedModel: string
   ragModel: string
   pattern: string
+  chunks: number
   indexedAt: string | null
   fileCount: number
   chunkCount: number
@@ -23,6 +24,7 @@ export const DEFAULT_CONFIG: RagConfig = {
   embedModel: "nomic-embed-text",
   ragModel: "qwen2.5:7b",
   pattern: "",
+  chunks: 12,
   indexedAt: null,
   fileCount: 0,
   chunkCount: 0,
@@ -33,7 +35,8 @@ export function readConfig(ragDir: string): RagConfig {
   if (!existsSync(path)) {
     throw new Error(`Missing ${path}. Run \`rag init\` first.`)
   }
-  return JSON.parse(readFileSync(path, "utf-8"))
+  const raw = JSON.parse(readFileSync(path, "utf-8"))
+  return { ...DEFAULT_CONFIG, ...raw }
 }
 
 export function writeConfig(ragDir: string, config: RagConfig): void {

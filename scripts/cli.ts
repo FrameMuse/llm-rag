@@ -5,12 +5,21 @@ Commands:
   init [dir]              Initialize .rag/ in current or specified directory
     --pattern <glob>      File pattern (default: all supported types)
   index                   Chunk, embed, and index files
+    --level N             Embedding model level (0-3)
     --watch               Watch for file changes and re-index
   serve                   Start MCP server (STDIO) for current .rag/
     --watch               Also watch for file changes and re-index
   mcp <tool> [args]       One-shot CLI proxy for MCP tools
+    --level N             Model level for embed and RAG (0-3)
+    --chunks N            Number of chunks to retrieve (default 12)
   info                    Show index stats
   help                    Show this help
+
+Model levels:
+  0  all-minilm:33m + llama3.2:3b (fast)
+  1  nomic-embed-text + qwen2.5:7b (balanced, default)
+  2  mxbai-embed-large + llama3.1:8b
+  3  snowflake-arctic-embed2 + qwen2.5:14b (precise)
 
 CLI proxy tools (rag mcp):
   config                  Print mcp.json for opencode.json adoption
@@ -46,7 +55,9 @@ async function main() {
     case "index": {
       const { indexCommand } = await import("../src/commands/index")
       const watchMode = args.includes("--watch")
-      await indexCommand(watchMode)
+      const levelIdx = args.indexOf("--level")
+      const level = levelIdx > 0 ? parseInt(args[levelIdx + 1], 10) : undefined
+      await indexCommand(watchMode, level)
       break
     }
     case "serve": {
