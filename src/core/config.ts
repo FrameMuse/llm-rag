@@ -25,7 +25,7 @@ export const DEFAULT_CONFIG: RagConfig = {
   name: "",
   embedModel: "mxbai-embed-large",
   ragModel: "llama3.2:3b",
-  visionModel: "llava:7b",
+  visionModel: "qwen3-vl",
   pattern: "",
   chunks: 8,
   temperature: 0.3,

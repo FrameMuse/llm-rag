@@ -1,3 +1,4 @@
+import { readFile } from "fs/promises"
 import sharp from "sharp"
 
 const OLLAMA_HOST = (process.env.OLLAMA_HOST || "http://localhost:11434").replace(/\/+$/, "")
@@ -9,8 +10,11 @@ export function isImage(filePath: string): boolean {
   return IMAGE_EXTS.some((ext) => filePath.toLowerCase().endsWith(ext))
 }
 
-async function imageToPngBase64(filePath: string): Promise<string> {
-  return (await sharp(filePath).png().toBuffer()).toString("base64")
+async function imageToBase64(filePath: string): Promise<string> {
+  if (filePath.toLowerCase().endsWith(".svg")) {
+    return (await sharp(filePath).png().toBuffer()).toString("base64")
+  }
+  return (await readFile(filePath)).toString("base64")
 }
 
 export async function describeImage(
@@ -19,7 +23,7 @@ export async function describeImage(
   _projectDir: string,
 ): Promise<string | null> {
   try {
-    const b64 = await imageToPngBase64(filePath)
+    const b64 = await imageToBase64(filePath)
     const body = JSON.stringify({
       model: visionModel,
       messages: [
@@ -32,7 +36,7 @@ export async function describeImage(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body,
-      signal: AbortSignal.timeout(60000),
+      signal: AbortSignal.timeout(120000),
     })
 
     if (!res.ok) {
