@@ -149,9 +149,7 @@ export async function chat(
     model,
     messages: [
       { role: "system", content: system },
-      prompt.startsWith("data:image/")
-        ? { role: "user", content: [{ type: "image_url", image_url: { url: prompt } }] }
-        : { role: "user", content: prompt },
+      { role: "user", content: prompt },
     ],
     stream: false,
   }
