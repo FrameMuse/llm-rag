@@ -23,6 +23,7 @@ export const SUPPORTED_EXTENSIONS = new Set([
   ".json", ".md", ".mdx",
   ".css", ".scss", ".less", ".sass",
   ".yaml", ".yml", ".toml", ".html", ".htm",
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg",
 ])
 
 const IGNORE_DIRS = new Set([

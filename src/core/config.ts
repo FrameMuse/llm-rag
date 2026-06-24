@@ -5,6 +5,7 @@ export interface RagConfig {
   name: string
   embedModel: string
   ragModel: string
+  visionModel: string
   pattern: string
   chunks: number
   temperature: number
@@ -24,6 +25,7 @@ export const DEFAULT_CONFIG: RagConfig = {
   name: "",
   embedModel: "mxbai-embed-large",
   ragModel: "llama3.2:3b",
+  visionModel: "llava:7b",
   pattern: "",
   chunks: 8,
   temperature: 0.3,

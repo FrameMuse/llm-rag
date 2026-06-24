@@ -12,6 +12,7 @@
     "@modelcontextprotocol/server": "^2.0.0-alpha.2",
     "chokidar": "^5.0.0",
     "gray-matter": "^4.0.3",
+    "sharp": "0.33.5",
     "typescript": "^6.0.3"
   },
   "devDependencies": {

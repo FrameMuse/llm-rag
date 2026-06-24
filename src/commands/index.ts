@@ -1,4 +1,5 @@
 import { walkFiles, chunkFile } from "../core/chunker"
+import { isImage, describeImage } from "../core/vision"
 import { requireRagDir } from "../core/ragdir"
 import { readConfig, writeConfig, getProjectDir, getDataDir } from "../core/config"
 import { ensureModel, embed, embedBatch } from "../core/embedder"
@@ -6,6 +7,11 @@ import { initStore, createTableFromRecords, addChunks, deleteChunksForFile, crea
 import { getIgnoredFiles } from "../utils/watch"
 import { ProgressBar } from "../utils/output"
 import { relative } from "path"
+import { createHash } from "crypto"
+
+function chunkId(filePath: string, heading: string): string {
+  return createHash("md5").update(`${filePath}::${heading}`).digest("hex").slice(0, 16)
+}
 
 export async function indexCommand(watchMode = false): Promise<void> {
   const ragDir = requireRagDir()
@@ -14,12 +20,15 @@ export async function indexCommand(watchMode = false): Promise<void> {
 
   console.log(`Indexing '${config.name}' (pattern: ${config.pattern || "*"})...`)
   console.log(`  Project: ${projectDir}`)
-  console.log(`  Model:   ${config.embedModel}`)
+  console.log(`  Embed:   ${config.embedModel}`)
+  if (config.visionModel) console.log(`  Vision:  ${config.visionModel}`)
 
   await ensureModel(config.embedModel)
 
   const files = walkFiles(projectDir, config.pattern)
-  console.log(`  Files:   ${files.length}`)
+  const textFiles = files.filter((f: string) => !isImage(f))
+  const imageFiles = files.filter((f: string) => isImage(f))
+  console.log(`  Files:   ${files.length} (${textFiles.length} text, ${imageFiles.length} images)`)
 
   const dataDir = getDataDir(ragDir)
   const conn = await initStore(dbPath(dataDir))
@@ -27,32 +36,74 @@ export async function indexCommand(watchMode = false): Promise<void> {
   let totalChunks = 0
   let totalFiles = 0
   let tableCreated = false
-  const bar = new ProgressBar("Processing", files.length)
 
-  for (const file of files) {
-    const chunks = await chunkFile(file, config.name, projectDir)
-    if (chunks.length === 0) continue
+  // ── Phase 1: text files ────────────────────────
 
-    const texts = chunks.map((c) => c.content)
-    const embeddings = await embedBatch(texts, config.embedModel)
-    const records = chunks
-      .map((chunk, i) => (embeddings[i] ? chunkToRecord(chunk, embeddings[i]!) : null))
-      .filter(Boolean) as Record<string, unknown>[]
+  if (textFiles.length > 0) {
+    const bar = new ProgressBar("Processing text", textFiles.length)
 
-    if (records.length === 0) continue
+    for (const file of textFiles) {
+      const chunks = await chunkFile(file, config.name, projectDir)
+      if (chunks.length === 0) continue
 
-    if (!tableCreated) {
-      await createTableFromRecords(conn, config.name, records)
-      tableCreated = true
-    } else {
-      const tbl = await openTable(conn, config.name)
-      await addChunks(tbl, records)
+      const texts = chunks.map((c) => c.content)
+      const embeddings = await embedBatch(texts, config.embedModel)
+      const records = chunks
+        .map((chunk, i) => (embeddings[i] ? chunkToRecord(chunk, embeddings[i]!) : null))
+        .filter(Boolean) as Record<string, unknown>[]
+
+      if (records.length === 0) continue
+
+      if (!tableCreated) {
+        await createTableFromRecords(conn, config.name, records)
+        tableCreated = true
+      } else {
+        const tbl = await openTable(conn, config.name)
+        await addChunks(tbl, records)
+      }
+
+      totalChunks += records.length
+      totalFiles++
+      bar.tick(1)
     }
-
-    totalChunks += records.length
-    totalFiles++
-    bar.tick(1)
   }
+
+  // ── Phase 2: image files ───────────────────────
+
+  if (imageFiles.length > 0) {
+    await ensureModel(config.visionModel)
+    const bar = new ProgressBar("Captions", imageFiles.length)
+    const concurrency = 4
+
+    for (let i = 0; i < imageFiles.length; i += concurrency) {
+      const batch = imageFiles.slice(i, i + concurrency)
+
+      const results = await Promise.allSettled(
+        batch.map((f: string) => processImage(f, config, projectDir)),
+      )
+
+      const records: Record<string, unknown>[] = []
+      for (const r of results) {
+        if (r.status === "fulfilled" && r.value) records.push(r.value)
+      }
+
+      if (records.length > 0) {
+        if (!tableCreated) {
+          await createTableFromRecords(conn, config.name, records)
+          tableCreated = true
+        } else {
+          const tbl = await openTable(conn, config.name)
+          await addChunks(tbl, records)
+        }
+      }
+
+      totalChunks += records.length
+      totalFiles += records.length
+      bar.tick(batch.length)
+    }
+  }
+
+  // ── finalize ───────────────────────────────────
 
   if (tableCreated) {
     const tbl = await openTable(conn, config.name)
@@ -65,7 +116,7 @@ export async function indexCommand(watchMode = false): Promise<void> {
   writeConfig(ragDir, config)
 
   console.log("  Done.")
-  console.log(`  Indexed ${totalChunks} chunks from ${totalFiles} files.`)
+  console.log(`  Indexed ${totalChunks} chunks from ${files.length} files.`)
 
   if (watchMode) {
     const { watch } = await import("chokidar")
@@ -89,6 +140,32 @@ export async function indexCommand(watchMode = false): Promise<void> {
   }
 }
 
+async function processImage(
+  filePath: string,
+  config: import("../core/config").RagConfig,
+  projectDir: string,
+): Promise<Record<string, unknown> | null> {
+  const relPath = relative(projectDir, filePath)
+  const caption = await describeImage(filePath, config.visionModel, projectDir)
+  if (!caption) return null
+
+  const id = chunkId(relPath, "__image__")
+  const content = `[${relPath} > image]\n${caption}`
+  const tokens = Math.ceil(caption.length / 3)
+
+  const vec = await embed(content, config.embedModel)
+  return {
+    id,
+    collection: config.name,
+    filePath: relPath,
+    heading: "__image__",
+    parentHeading: "",
+    content,
+    tokens,
+    vector: vec,
+  }
+}
+
 export async function reindexFile(
   ragDir: string,
   config: import("../core/config").RagConfig,
@@ -99,17 +176,22 @@ export async function reindexFile(
 ): Promise<void> {
   const relPath = relative(projectDir, filePath)
   try {
-    const chunks = await chunkFile(filePath, config.name, projectDir)
-    if (chunks.length === 0) return
-
     await deleteChunksForFile(table, relPath)
 
-    const texts = chunks.map((c) => c.content)
-    const embeddings = await embedBatch(texts, config.embedModel)
+    let records: Record<string, unknown>[] = []
 
-    const records = chunks
-      .map((chunk, i) => (embeddings[i] ? chunkToRecord(chunk, embeddings[i]!) : null))
-      .filter(Boolean) as Record<string, unknown>[]
+    if (isImage(filePath)) {
+      const r = await processImage(filePath, config, projectDir)
+      if (r) records = [r]
+    } else {
+      const chunks = await chunkFile(filePath, config.name, projectDir)
+      if (chunks.length === 0) return
+      const texts = chunks.map((c) => c.content)
+      const embeddings = await embedBatch(texts, config.embedModel)
+      records = chunks
+        .map((chunk, i) => (embeddings[i] ? chunkToRecord(chunk, embeddings[i]!) : null))
+        .filter(Boolean) as Record<string, unknown>[]
+    }
 
     if (records.length > 0) {
       await addChunks(table, records)
