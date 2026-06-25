@@ -283,7 +283,7 @@ If the context lacks information, state what is missing — do not make up detai
     })
   }
 
-  return { answer, sources }
+  return { answer, sources, graphContext }
 }
 
 // ── document listing ──────────────────────────────────

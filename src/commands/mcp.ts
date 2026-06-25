@@ -84,6 +84,14 @@ export async function mcpCommand(args: string[]): Promise<void> {
       if (temperature !== undefined) opts.temperature = temperature
       if (graph) opts.graph = true
       const result = await handlers.handleQuery(ragDir, projectDir, config, question, opts)
+      if (result.graphContext) {
+        const block = result.graphContext.replace("=== Graph Context ===", "").trim()
+        console.log("\n────────────────────────────────────────────────")
+        console.log(" Graph Context")
+        console.log("────────────────────────────────────────────────\n")
+        console.log(block)
+        console.log("\n────────────────────────────────────────────────\n")
+      }
       console.log(result.answer)
       console.log()
       console.log("Sources:")
