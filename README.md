@@ -40,12 +40,12 @@ alias rag='bun /path/to/llm-rag/scripts/cli.ts'
 cd my-project
 rag init              # create .rag/ project scope
 rag index             # chunk, embed, index all files
-rag mcp search "..."  # retrieve document chunks
-rag mcp graph "..."   # query knowledge graph
-rag mcp get-document <path>  # read full documents
+rag mcp search "..."  # 1. retrieve document chunks
+rag mcp graph "..."   # 2. query knowledge graph
+rag mcp get-document <path>  # 3. read full documents
 ```
 
-`rag mcp query` uses a small local model (llama3.2:3b). For best results, orchestrate `search` + `graph` tools yourself and synthesize answers with your own reasoning. `rag mcp query "question" --graph` is available as a fast single-call option.
+Do NOT use `rag mcp query` — it uses a small local model. Orchestrate `search` + `graph` tools directly and synthesize with your own reasoning.
 
 ## Commands
 
@@ -60,15 +60,13 @@ rag mcp get-document <path>  # read full documents
 
 ### rag mcp tools
 
-`rag mcp query` uses a small local model (llama3.2:3b). For best results, orchestrate tools yourself:
+Do NOT use `rag mcp query` or `rag mcp query --graph` — they use a small local model that produces lower quality answers. Use these tools instead:
 
 | Tool | Usage | Description |
 |------|-------|-------------|
 | `search` | `rag mcp search "query" [--chunks N] [--limit N]` | Retrieve relevant document chunks |
 | `graph` | `rag mcp graph "topic" [--signature] [--limit N]` | Knowledge graph query |
 | `get-document` | `rag mcp get-document <path>` | Read full document content |
-| `query` | `rag mcp query "question" [--chunks N] [--temperature N]` | RAG from document chunks only |
-| `query_with_graph` | `rag mcp query "question" --graph [--chunks N]` | RAG + graph combined (local synthesis) |
 | `list-documents` | `rag mcp list-documents` | List all indexed files |
 | `config` | `rag mcp config` | Print mcp.json for opencode.json adoption |
 
@@ -117,14 +115,12 @@ The MCP server exposes 10 tools:
 | `graph_god_refs` | Core abstractions | Architecture overview |
 | `graph_path` | Shortest path | Tracing relationships |
 | `graph_communities` | List communities | Module discovery |
-| `query_with_graph` | RAG + graph combined | Fast single-call answer |
-| `query` | RAG from chunks | Fallback when graph unavailable |
 | `list_documents` | List indexed files | Discovery |
 | `get_document` | Read file content | Deep reading |
+| `query_with_graph` | **NOT FOR AGENT** — uses small local model | Do not use |
+| `query` | **NOT FOR AGENT** — uses small local model | Do not use |
 
-**Recommended strategy:** orchestrate `search` + `graph` tools yourself using your own reasoning for synthesis. This produces higher quality answers than the local RAG model.
-
-For convenience, `query_with_graph` provides a single-call answer combining search + graph + local synthesis.
+Call `search` + `graph` tools directly and synthesize with your own reasoning.
 
 Run `rag mcp config` from project directory to print the snippet with `cwd` pre-filled.
 
