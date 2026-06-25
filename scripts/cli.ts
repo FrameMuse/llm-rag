@@ -5,9 +5,8 @@ Commands:
   init [dir]              Initialize .rag/ in current or specified directory
     --pattern <glob>      File pattern (default: all supported types)
   index                   Chunk, embed, and index files
-    --watch               Watch for file changes and re-index
   serve                   Start MCP server (STDIO) for current .rag/
-    --watch               Also watch for file changes and re-index
+    --watch               Watch for file changes and re-index
   graph build             Build knowledge graph from code
   mcp <tool> [args]       One-shot CLI proxy for MCP tools
     --chunks N            Number of chunks to retrieve
@@ -61,8 +60,7 @@ async function main() {
     }
     case "index": {
       const { indexCommand } = await import("../src/commands/index")
-      const watchMode = args.includes("--watch")
-      await indexCommand(watchMode)
+      await indexCommand()
       break
     }
     case "serve": {

@@ -5,7 +5,6 @@ import { readConfig, writeConfig, getProjectDir, getDataDir } from "../core/conf
 import { ensureModel, embed, embedBatch } from "../core/embedder"
 import { initStore, createTableFromRecords, addChunks, deleteChunksForFile, createFtsIndex, chunkToRecord, openTable, dbPath } from "../core/store"
 import { buildGraph } from "./graph"
-import { getIgnoredFiles } from "../utils/watch"
 import { ProgressBar } from "../utils/output"
 import { relative, basename, extname } from "path"
 import { createHash } from "crypto"
@@ -14,7 +13,7 @@ function chunkId(filePath: string, heading: string): string {
   return createHash("md5").update(`${filePath}::${heading}`).digest("hex").slice(0, 16)
 }
 
-export async function indexCommand(watchMode = false): Promise<void> {
+export async function indexCommand(): Promise<void> {
   const ragDir = requireRagDir()
   const config = readConfig(ragDir)
   const projectDir = getProjectDir(ragDir)
@@ -121,27 +120,6 @@ export async function indexCommand(watchMode = false): Promise<void> {
 
   console.log("  Done.")
   console.log(`  Indexed ${totalChunks} chunks from ${files.length} files.`)
-
-  if (watchMode) {
-    const { watch } = await import("chokidar")
-    const table = await openTable(conn, config.name)
-    const isIgnored = getIgnoredFiles(projectDir)
-    const watcher = watch(projectDir, {
-      ignored: (path: string) => isIgnored(path),
-      persistent: true,
-      awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
-    })
-    watcher.on("change", (p) => reindexFile(ragDir, config, projectDir, p, conn, table))
-    watcher.on("add", (p) => reindexFile(ragDir, config, projectDir, p, conn, table))
-    watcher.on("unlink", (p) => removeFile(ragDir, config, projectDir, p, conn, table))
-    process.on("SIGINT", () => {
-      watcher.close()
-      conn.close()
-      process.exit(0)
-    })
-    console.log("Watching for changes...")
-    await new Promise(() => {})
-  }
 }
 
 async function processImage(
