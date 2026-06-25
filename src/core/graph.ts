@@ -8,6 +8,7 @@ export interface GraphNode {
   type: string
   file: string
   name: string
+  signature?: string
 }
 
 export interface GraphEdge {
@@ -20,9 +21,9 @@ export class KnowledgeGraph {
   nodes = new Map<string, GraphNode>()
   edges: GraphEdge[] = []
 
-  addNode(id: string, type: string, file: string, name: string): void {
+  addNode(id: string, type: string, file: string, name: string, signature?: string): void {
     if (!this.nodes.has(id)) {
-      this.nodes.set(id, { id, type, file, name })
+      this.nodes.set(id, { id, type, file, name, signature: signature || undefined })
     }
   }
 
@@ -54,7 +55,8 @@ export class KnowledgeGraph {
       if (name) {
         const id = `${relPath}::${name}`
         const type = nodeType(node)
-        this.addNode(id, type, relPath, name)
+        const sig = captureSignature(node, sourceFile)
+        this.addNode(id, type, relPath, name, sig)
         this.addEdge(relPath, id, "defines")
 
         if (ts.isClassDeclaration(node) && node.heritageClauses) {
@@ -74,7 +76,8 @@ export class KnowledgeGraph {
             if (member.name && (ts.isIdentifier(member.name) || ts.isStringLiteral(member.name))) {
               const memberName = member.name.text
               const memberId = `${relPath}::${name}.${memberName}`
-              this.addNode(memberId, "member", relPath, `${name}.${memberName}`)
+              const memberSig = captureSignature(member, sourceFile)
+              this.addNode(memberId, "member", relPath, `${name}.${memberName}`, memberSig)
               this.addEdge(id, memberId, "contains")
             }
           }
@@ -384,11 +387,12 @@ export class KnowledgeGraph {
 
   // ── formatting ────────────────────────────────────
 
-  formatNeighbors(id: string, results: { edge: GraphEdge; neighbor: GraphNode }[]): string {
+  formatNeighbors(id: string, results: { edge: GraphEdge; neighbor: GraphNode }[], showSig = false): string {
     if (results.length === 0) return `No connections for "${id}".`
     const lines = [`Connections for "${id}":`]
     for (const { edge, neighbor } of results) {
-      lines.push(`  ${edge.type} → ${neighbor.name} (${neighbor.file})`)
+      const label = showSig && neighbor.signature ? neighbor.signature : neighbor.name
+      lines.push(`  ${edge.type} → ${label} — ${neighbor.type} (${neighbor.file})`)
     }
     return lines.join("\n")
   }
@@ -415,13 +419,15 @@ export class KnowledgeGraph {
     return lines.join("\n")
   }
 
-  formatGodNodes(results: { id: string; degree: number; node: GraphNode | undefined }[]): string {
+  formatGodNodes(results: { id: string; degree: number; node: GraphNode | undefined }[], showSig = false): string {
     if (results.length === 0) return "No god references found."
     const lines = ["God references (core abstractions):"]
     for (const r of results) {
-      const name = r.node?.name ?? r.id
-      const file = r.node?.file ?? ""
-      lines.push(`  ${name} — ${r.degree} connections — ${file}`)
+      const node = r.node
+      const label = node && showSig && node.signature ? node.signature : (node?.name ?? r.id)
+      const type = node?.type ? ` — ${node.type}` : ""
+      const file = node?.file ?? ""
+      lines.push(`  ${label}${type} — ${r.degree} connections — ${file}`)
     }
     return lines.join("\n")
   }
@@ -466,11 +472,12 @@ export class KnowledgeGraph {
     return lines.join("\n")
   }
 
-  formatFind(results: GraphNode[]): string {
+  formatFind(results: GraphNode[], showSig = false): string {
     if (results.length === 0) return "No matching references."
     const lines = [`Found ${results.length} references:`]
     for (const n of results.slice(0, 50)) {
-      lines.push(`  ${n.name} — ${n.type} in ${n.file}`)
+      const label = showSig && n.signature ? n.signature : n.name
+      lines.push(`  ${label} — ${n.type} in ${n.file}`)
     }
     if (results.length > 50) lines.push(`  ... and ${results.length - 50} more`)
     return lines.join("\n")
@@ -543,4 +550,11 @@ function nodeType(node: ts.Node): string {
   if (ts.isEnumDeclaration(node)) return "enum"
   if (ts.isModuleDeclaration(node)) return "module"
   return "declaration"
+}
+
+function captureSignature(node: ts.Node, sourceFile: ts.SourceFile): string | undefined {
+  const full = node.getText(sourceFile)
+  const sig = full.split(/[{;=]/)[0].trim()
+  if (sig.length > 120 || sig.length < 5) return undefined
+  return sig
 }

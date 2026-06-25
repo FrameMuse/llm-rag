@@ -53,6 +53,7 @@ export async function graphMcpCommand(args: string[]): Promise<void> {
   }
 
   const sub = args[0]
+  const showSig = args.includes("--signature")
   if (!sub || sub === "help") {
     console.log(`Usage: rag mcp graph <subcommand> [args]
 
@@ -60,15 +61,18 @@ Subcommands:
   neighbors <node>        Show connections for a node
     --dir in|out|both     Direction (default: both)
     --type <edgeType>     Filter by edge type
+    --signature           Show declaration signatures
   path <from> <to>        Find shortest path
   god-refs [--limit N]    Most connected core abstractions
+    --signature           Show declaration signatures
   hubs [--limit N]        Alias for god-refs
-  find <text>             Search nodes by name
-  list                    Show node/edge counts
   communities             List all communities
   community <id>          Show nodes in a community
-  surprises [--limit N]   Cross-community surprising connections
-  cycles                  Detect import cycles
+  surprises [--limit N]   Cross-community connections
+  cycles                  Import cycle detection
+  find <text>             Search references
+    --signature           Show declaration signatures
+  list                    Node/edge counts
   help                    Show this help`)
     return
   }
@@ -90,7 +94,7 @@ Subcommands:
       const typeIdx = args.indexOf("--type")
       const type = typeIdx > 0 ? args[typeIdx + 1] : undefined
       const results = g.neighbors(id, dir, type)
-      console.log(g.formatNeighbors(id, results))
+      console.log(g.formatNeighbors(id, results, showSig))
       break
     }
 
@@ -112,18 +116,18 @@ Subcommands:
       const limitIdx = args.indexOf("--limit")
       const limit = limitIdx > 0 ? parseInt(args[limitIdx + 1], 10) || 10 : 10
       const results = g.godNodes(limit)
-      console.log(g.formatGodNodes(results))
+      console.log(g.formatGodNodes(results, showSig))
       break
     }
 
     case "find": {
-      const text = args.slice(1).join(" ")
+      const text = args.slice(1).filter((a) => a !== "--signature").join(" ")
       if (!text) {
-        console.log("Usage: rag mcp graph find <text>")
+        console.error("Usage: rag mcp graph find <text>")
         return
       }
       const results = g.find(text)
-      console.log(g.formatFind(results))
+      console.log(g.formatFind(results, showSig))
       break
     }
 
