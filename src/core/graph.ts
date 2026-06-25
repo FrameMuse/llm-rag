@@ -380,9 +380,15 @@ export class KnowledgeGraph {
 
   find(text: string): GraphNode[] {
     const lower = text.toLowerCase()
-    return [...this.nodes.values()].filter(
-      (n) => n.name.toLowerCase().includes(lower) || n.id.toLowerCase().includes(lower),
-    )
+    return [...this.nodes.values()]
+      .filter((n) => n.name.toLowerCase().includes(lower) || n.id.toLowerCase().includes(lower))
+      .sort((a, b) => {
+        const aName = a.name.toLowerCase()
+        const bName = b.name.toLowerCase()
+        const aRank = aName === lower ? 3 : aName.startsWith(lower) ? 2 : 1
+        const bRank = bName === lower ? 3 : bName.startsWith(lower) ? 2 : 1
+        return bRank - aRank || a.name.localeCompare(b.name)
+      })
   }
 
   // ── formatting ────────────────────────────────────
