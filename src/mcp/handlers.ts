@@ -270,18 +270,20 @@ If the context lacks information, state what is missing — do not make up detai
 
   const answer = await chat(system, `Context:\n${context}\n\nQuestion: ${question}`, ragModel, effectiveConfig.temperature)
 
-  return {
-    answer,
-    sources: [
-      { filePath: "graph", heading: "knowledge graph", snippet: "structural context", score: 1.00 },
-      ...results.map((r, i) => ({
-        filePath: r.filePath,
-        heading: r.heading,
-        snippet: r.content.slice(0, 200),
-        score: Math.round((1 - i / results.length) * 1000) / 1000,
-      })),
-    ],
+  const sources: { filePath: string; heading: string; snippet: string; score: number }[] = []
+  if (opts?.graph) {
+    sources.push({ filePath: "graph", heading: "knowledge graph", snippet: "structural context", score: 1.00 })
   }
+  for (let i = 0; i < results.length; i++) {
+    sources.push({
+      filePath: results[i].filePath,
+      heading: results[i].heading,
+      snippet: results[i].content.slice(0, 200),
+      score: Math.round((1 - i / results.length) * 1000) / 1000,
+    })
+  }
+
+  return { answer, sources }
 }
 
 // ── document listing ──────────────────────────────────
