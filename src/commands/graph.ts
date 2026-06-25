@@ -77,6 +77,73 @@ Subcommands:
     return
   }
 
+  const known = [
+    "list", "neighbors", "path", "god-refs", "god-nodes", "hubs",
+    "find", "communities", "community", "surprises", "cycles", "help",
+  ]
+
+  // Free-form query: show everything about a topic
+  if (sub && !known.includes(sub)) {
+    const limitIdx = args.indexOf("--limit")
+    const limit = limitIdx > 0 ? parseInt(args[limitIdx + 1], 10) || 10 : 10
+    const skipFlags = new Set(["--signature", "--limit", limitIdx > 0 ? args[limitIdx + 1] : ""])
+    const query = args.filter((a) => !skipFlags.has(a)).join(" ")
+
+    const results = g.find(query)
+    if (results.length === 0) {
+      console.log("No matching references.")
+      return
+    }
+
+    console.log(g.formatFind(results.slice(0, limit), showSig))
+
+    // Pick top meaningful match
+    const top = results.find((r) => r.type !== "file" && r.type !== "heading") || results[0]
+
+    if (!top) return
+
+    console.log(`\nTop match: ${top.name}`)
+    console.log(`  Type: ${top.type}`)
+    console.log(`  File: ${top.file}`)
+    if (showSig && top.signature) console.log(`  Signature: ${top.signature}`)
+
+    const conn = g.neighbors(top.id)
+    if (conn.length > 0) {
+      console.log(`\n  Connections (${conn.length}):`)
+      for (const { edge, neighbor } of conn.slice(0, 15)) {
+        const label = showSig && neighbor.signature ? neighbor.signature : neighbor.name
+        console.log(`    ${edge.type} → ${label} (${neighbor.type})`)
+      }
+    }
+
+    const communities = g.detectCommunities()
+    const topCommunity = [...communities.entries()].find(([_, c]) =>
+      top.file.startsWith(c.label) || top.file.split("/")[0] === c.label,
+    )
+    if (topCommunity) {
+      console.log(`\n  Community: "${topCommunity[1].label}" (${topCommunity[1].nodeCount} refs)`)
+    }
+
+    const allGod = g.godNodes(100)
+    const godRank = allGod.findIndex((r) => r.id === top.id)
+    if (godRank >= 0) {
+      console.log(`  God rank: #${godRank + 1} (${allGod[godRank].degree} connections)`)
+    }
+
+    const surprises = g.surprisingConnections().filter((s) => s.source === top.id || s.target === top.id)
+    if (surprises.length > 0) {
+      console.log(`\n  Surprising connections:`)
+      for (const s of surprises) {
+        const src = g.nodes.get(s.source)?.name ?? s.source
+        const tgt = g.nodes.get(s.target)?.name ?? s.target
+        console.log(`    ${src} --${s.type}--> ${tgt}`)
+        console.log(`    → ${s.reasons.join("; ")}`)
+      }
+    }
+
+    return
+  }
+
   switch (sub) {
     case "list": {
       console.log(g.formatList())
