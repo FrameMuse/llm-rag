@@ -19,6 +19,7 @@ CLI proxy tools (rag mcp):
   search <query>          Semantic search
     [--limit N]           Max results (default 10)
   query <question>        RAG: ask a question, get synthesized answer
+    [--graph]             Include knowledge graph context
   list-documents          List all indexed documents
   get-document <path>     Get full content of a document
   graph <subcommand>      Knowledge graph queries (god-refs, communities, cycles, surprises)

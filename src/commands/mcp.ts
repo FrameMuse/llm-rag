@@ -2,13 +2,17 @@ import { requireRagDir } from "../core/ragdir"
 import { readConfig, getProjectDir, readMcpJson } from "../core/config"
 import * as handlers from "../mcp/handlers"
 
-function parseFlags(args: string[]): { positional: string[]; chunks?: number; temperature?: number } {
+function parseFlags(args: string[]): { positional: string[]; chunks?: number; temperature?: number; graph?: boolean } {
   let chunks: number | undefined
   let temperature: number | undefined
+  let graph = false
   const skip = new Set<number>()
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--chunks" && i + 1 < args.length) {
+    if (args[i] === "--graph") {
+      graph = true
+      skip.add(i)
+    } else if (args[i] === "--chunks" && i + 1 < args.length) {
       chunks = parseInt(args[i + 1], 10)
       skip.add(i).add(i + 1)
       i++
@@ -23,7 +27,7 @@ function parseFlags(args: string[]): { positional: string[]; chunks?: number; te
   }
 
   const positional = args.filter((_, i) => !skip.has(i))
-  return { positional, chunks, temperature }
+  return { positional, chunks, temperature, graph }
 }
 
 export async function mcpCommand(args: string[]): Promise<void> {
@@ -31,7 +35,7 @@ export async function mcpCommand(args: string[]): Promise<void> {
   const config = readConfig(ragDir)
   const projectDir = getProjectDir(ragDir)
 
-  const { positional, chunks, temperature } = parseFlags(args)
+  const { positional, chunks, temperature, graph } = parseFlags(args)
 
   const tool = positional[0]
   if (!tool || tool === "help") {
@@ -72,12 +76,13 @@ export async function mcpCommand(args: string[]): Promise<void> {
     case "query": {
       const question = positional.slice(1).join(" ")
       if (!question) {
-        console.error("Usage: rag mcp query <question> [--chunks N] [--temperature N]")
+        console.error("Usage: rag mcp query <question> [--chunks N] [--temperature N] [--graph]")
         process.exit(1)
       }
-      const opts: Partial<{ chunks: number; temperature: number }> = {}
+      const opts: Partial<{ chunks: number; temperature: number; graph: boolean }> = {}
       if (chunks) opts.chunks = chunks
       if (temperature !== undefined) opts.temperature = temperature
+      if (graph) opts.graph = true
       const result = await handlers.handleQuery(ragDir, projectDir, config, question, opts)
       console.log(result.answer)
       console.log()

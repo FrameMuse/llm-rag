@@ -1,10 +1,11 @@
 import { readFileSync } from "fs"
-import { resolve, relative } from "path"
+import { resolve, relative, join } from "path"
 import type { RagConfig } from "../core/config"
 import { getDataDir } from "../core/config"
 import { embed, chat, ensureModel } from "../core/embedder"
 import { initStore, tableExists, openTable, hybridSearchTable, listDocumentPaths, dbPath } from "../core/store"
 import type { SearchResult } from "../core/store"
+import { KnowledgeGraph } from "../core/graph"
 
 // ── diversity reranker ────────────────────────────────
 
@@ -135,6 +136,96 @@ export async function handleSearch(
   }
 }
 
+// ── graph context builder ──────────────────────────
+
+async function buildGraphContext(
+  ragDir: string,
+  config: RagConfig,
+  question: string,
+  ragModel: string,
+): Promise<string | null> {
+  let g: KnowledgeGraph
+  try {
+    const dataDir = getDataDir(ragDir)
+    g = new KnowledgeGraph()
+    g.load(join(dataDir, "graph.json"))
+    if (g.nodes.size === 0) return null
+  } catch {
+    return null
+  }
+
+  const planPrompt = `You have a knowledge graph with these query commands:
+- find(text) — search nodes by name
+- neighbors(id) — connections for a node
+- path(from, to) — shortest path between two nodes
+- god-refs(limit) — most connected core abstractions
+Name the top entity the question is about, then specify up to 2 graph queries to run.
+
+Return JSON: { "entity": "CanvasDraw", "queries": [{"query": "neighbors", "args": ["CanvasDraw"]}] }`
+
+  let planText: string
+  try {
+    const planResult = await chat("You are a concise graph query planner.", planPrompt + `\n\nQuestion: ${question}`, ragModel, config.temperature)
+    planText = planResult.trim()
+    // Extract JSON from potential markdown code block
+    const jsonMatch = planText.match(/```(?:json)?\s*([\s\S]*?)```/) || planText.match(/{[\s\S]*}/)
+    planText = jsonMatch?.[1] ?? planText
+  } catch {
+    return null
+  }
+
+  let plan: { entity?: string; queries?: { query: string; args: string[] }[] }
+  try {
+    plan = JSON.parse(planText)
+  } catch {
+    return null
+  }
+
+  if (!plan.queries || plan.queries.length === 0) return null
+
+  const blocks: string[] = []
+
+  for (const q of plan.queries) {
+    const queryType = q.query?.toLowerCase()
+    const args = q.args || []
+
+    if (queryType === "find" && args[0]) {
+      const results = g.find(args[0])
+      if (results.length > 0) {
+        const top = results.slice(0, 5).map(r => `  ${r.name} — ${r.type} — ${r.file}`).join("\n")
+        blocks.push(`find "${args[0]}":\n${top}`)
+      }
+    } else if (queryType === "neighbors" && args[0]) {
+      const fullId = args.length > 1 ? args[1] : (g.find(args[0])[0]?.id)
+      if (fullId) {
+        const nbs = g.neighbors(fullId, "both")
+        if (nbs.length > 0) {
+          const lines = nbs.slice(0, 10).map(n => `  ${n.edge.type} → ${n.neighbor.name}`)
+          blocks.push(`neighbors of "${args[0]}":\n${lines.join("\n")}`)
+        }
+      }
+    } else if (queryType === "path" && args[0] && args[1]) {
+      const fromId = g.find(args[0])[0]?.id
+      const toId = g.find(args[1])[0]?.id
+      if (fromId && toId) {
+        const edges = g.path(fromId, toId)
+        if (edges.length > 0) {
+          const path = edges.map(e => `  ${e.type} → ${e.target === edges[edges.length - 1].target ? args[1] : e.target}`).join("\n")
+          blocks.push(`path from "${args[0]}" to "${args[1]}":\n${path}`)
+        }
+      }
+    } else if (queryType === "god-refs") {
+      const limit = args[0] ? parseInt(args[0], 10) || 5 : 5
+      const hubs = g.godNodes(limit)
+      blocks.push(`god references (top ${limit}):\n${hubs.map(h => `  ${h.node?.name ?? h.id} — ${h.degree} connections`).join("\n")}`)
+    }
+  }
+
+  if (blocks.length === 0) return null
+
+  return "=== Graph Context ===\n" + blocks.join("\n\n") + "\n"
+}
+
 // ── RAG query ─────────────────────────────────────────
 
 export async function handleQuery(
@@ -142,7 +233,7 @@ export async function handleQuery(
   _projectDir: string,
   config: RagConfig,
   question: string,
-  opts?: { chunks?: number; embedModel?: string; ragModel?: string; temperature?: number },
+  opts?: { chunks?: number; embedModel?: string; ragModel?: string; temperature?: number; graph?: boolean },
 ) {
   const chunks = opts?.chunks ?? config.chunks
   const ragModel = opts?.ragModel ?? config.ragModel
@@ -155,30 +246,41 @@ export async function handleQuery(
 
   const results = await retrieveExpanded(ragDir, effectiveConfig, question, chunks, embedModel, ragModel)
 
-  if (results.length === 0) {
+  let graphContext = ""
+  if (opts?.graph) {
+    const gc = await buildGraphContext(ragDir, effectiveConfig, question, ragModel)
+    if (gc) graphContext = gc
+  }
+
+  if (results.length === 0 && !graphContext) {
     return { answer: "No index found. Run `rag index` first.", sources: [] }
   }
 
-  const context = results
+  const docContext = results
     .map((r, i) => `[${i + 1}] ${r.filePath} > ${r.heading}\n${r.content}`)
     .join("\n\n---\n\n")
 
+  const context = docContext ? `${graphContext}=== Document Context ===\n${docContext}` : graphContext
+
   const system = `You are a knowledgeable assistant with access to documentation for "${config.name}".
-Answer based ONLY on the provided context.
-If the context lacks information, state what is missing — do not make up details.
+Answer based on both the graph context and document context provided.
+Use the graph context for structural/relationship questions, and document context for detailed explanations.
 Cite sources using [N] references.
-Do not invent concepts not present in the context.`
+If the context lacks information, state what is missing — do not make up details.`
 
   const answer = await chat(system, `Context:\n${context}\n\nQuestion: ${question}`, ragModel, effectiveConfig.temperature)
 
   return {
     answer,
-    sources: results.map((r, i) => ({
-      filePath: r.filePath,
-      heading: r.heading,
-      snippet: r.content.slice(0, 200),
-      score: Math.round((1 - i / results.length) * 1000) / 1000,
-    })),
+    sources: [
+      { filePath: "graph", heading: "knowledge graph", snippet: "structural context", score: 1.00 },
+      ...results.map((r, i) => ({
+        filePath: r.filePath,
+        heading: r.heading,
+        snippet: r.content.slice(0, 200),
+        score: Math.round((1 - i / results.length) * 1000) / 1000,
+      })),
+    ],
   }
 }
 
