@@ -107,9 +107,15 @@ export async function mcpCommand(args: string[]): Promise<void> {
       break
     }
 
+    case "graph": {
+      const { graphMcpCommand } = await import("./graph")
+      await graphMcpCommand(positional.slice(1))
+      break
+    }
+
     default:
       console.error(`Unknown tool: ${tool}`)
-      console.error("Available: search, query, list-documents, get-document, config")
+      console.error("Available: search, query, list-documents, get-document, config, graph")
       process.exit(1)
   }
 }

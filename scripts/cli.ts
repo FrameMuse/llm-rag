@@ -8,6 +8,7 @@ Commands:
     --watch               Watch for file changes and re-index
   serve                   Start MCP server (STDIO) for current .rag/
     --watch               Also watch for file changes and re-index
+  graph build             Build knowledge graph from code
   mcp <tool> [args]       One-shot CLI proxy for MCP tools
     --chunks N            Number of chunks to retrieve
   info                    Show index stats
@@ -20,7 +21,15 @@ CLI proxy tools (rag mcp):
   query <question>        RAG: ask a question, get synthesized answer
   list-documents          List all indexed documents
   get-document <path>     Get full content of a document
+  graph <subcommand>      Knowledge graph queries (neighbors, path, hubs, find, list)
 `)
+
+  console.log(`Graph subcommands (rag mcp graph):
+  neighbors <node> [--dir in|out|both] [--type <type>]
+  path <from> <to>
+  hubs [--limit N]
+  find <text>
+  list`)
 }
 
 async function main() {
@@ -54,6 +63,11 @@ async function main() {
       const { serveCommand } = await import("../src/commands/serve")
       const watchMode = args.includes("--watch")
       await serveCommand(watchMode)
+      break
+    }
+    case "graph": {
+      const { buildGraphCommand } = await import("../src/commands/graph")
+      await buildGraphCommand()
       break
     }
     case "mcp": {

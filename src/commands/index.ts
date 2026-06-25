@@ -4,6 +4,7 @@ import { requireRagDir } from "../core/ragdir"
 import { readConfig, writeConfig, getProjectDir, getDataDir } from "../core/config"
 import { ensureModel, embed, embedBatch } from "../core/embedder"
 import { initStore, createTableFromRecords, addChunks, deleteChunksForFile, createFtsIndex, chunkToRecord, openTable, dbPath } from "../core/store"
+import { buildGraph } from "./graph"
 import { getIgnoredFiles } from "../utils/watch"
 import { ProgressBar } from "../utils/output"
 import { relative, basename, extname } from "path"
@@ -109,6 +110,9 @@ export async function indexCommand(watchMode = false): Promise<void> {
     const tbl = await openTable(conn, config.name)
     await createFtsIndex(tbl)
   }
+
+  console.log("  Building knowledge graph...")
+  buildGraph(ragDir, config, projectDir)
 
   config.indexedAt = new Date().toISOString()
   config.fileCount = totalFiles
