@@ -95,10 +95,10 @@ Subcommands:
       return
     }
 
-    console.log(g.formatFind(results.slice(0, limit), showSig))
+    console.log(g.formatFindTree(results.slice(0, limit * 3), showSig))
 
     // Pick top meaningful match
-    const top = results.find((r) => r.type !== "file" && r.type !== "heading") || results[0]
+    const top = results.find((r) => r.exported !== false && r.type !== "file" && r.type !== "heading") || results.find((r) => r.type !== "file" && r.type !== "heading") || results[0]
 
     if (!top) return
 

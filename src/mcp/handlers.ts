@@ -192,11 +192,12 @@ Return JSON: { "entity": "CanvasDraw", "queries": [{"query": "neighbors", "args"
     if (queryType === "find" && args[0]) {
       const results = g.find(args[0])
       if (results.length > 0) {
-        const top = results.slice(0, 5).map(r => `  ${r.name} — ${r.type} — ${r.file}`).join("\n")
+        const top = results.slice(0, 5).map(r => `  ${r.name}${g.nodeTags(r)} — ${r.type} — ${r.file}`).join("\n")
         blocks.push(`find "${args[0]}":\n${top}`)
       }
     } else if (queryType === "neighbors" && args[0]) {
-      const fullId = args.length > 1 ? args[1] : (g.find(args[0])[0]?.id)
+      const firstExported = g.find(args[0]).find(r => r.exported !== false)
+      const fullId = args.length > 1 ? args[1] : (firstExported || g.find(args[0])[0])?.id
       if (fullId) {
         const nbs = g.neighbors(fullId, "both")
         if (nbs.length > 0) {

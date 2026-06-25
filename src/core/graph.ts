@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync, existsSync, writeFileSync } from "fs"
-import { join, relative, extname } from "path"
+import { join, relative, extname, basename, dirname } from "path"
 import ts from "typescript"
 import matter from "gray-matter"
 
@@ -9,6 +9,7 @@ export interface GraphNode {
   file: string
   name: string
   signature?: string
+  exported?: boolean
 }
 
 export interface GraphEdge {
@@ -21,9 +22,9 @@ export class KnowledgeGraph {
   nodes = new Map<string, GraphNode>()
   edges: GraphEdge[] = []
 
-  addNode(id: string, type: string, file: string, name: string, signature?: string): void {
+  addNode(id: string, type: string, file: string, name: string, signature?: string, exported?: boolean): void {
     if (!this.nodes.has(id)) {
-      this.nodes.set(id, { id, type, file, name, signature: signature || undefined })
+      this.nodes.set(id, { id, type, file, name, signature: signature || undefined, exported })
     }
   }
 
@@ -37,6 +38,7 @@ export class KnowledgeGraph {
 
   extractFromFile(filePath: string, projectDir: string): void {
     const ext = extname(filePath).toLowerCase()
+    if (basename(filePath) === "package.json") return this.extractFromPackageJson(filePath, projectDir)
     if ([".md", ".mdx"].includes(ext)) return this.extractFromMdFile(filePath, projectDir)
     if (![".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"].includes(ext)) return
 
@@ -56,7 +58,8 @@ export class KnowledgeGraph {
         const id = `${relPath}::${name}`
         const type = nodeType(node)
         const sig = captureSignature(node, sourceFile)
-        this.addNode(id, type, relPath, name, sig)
+        const isExported = (ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Export) !== 0
+        this.addNode(id, type, relPath, name, sig, isExported)
         this.addEdge(relPath, id, "defines")
 
         if (ts.isClassDeclaration(node) && node.heritageClauses) {
@@ -155,6 +158,41 @@ export class KnowledgeGraph {
       if (!href || href.startsWith("http")) continue
       if (href.endsWith(".md") || href.endsWith(".mdx")) {
         this.addEdge(relPath, href, "imports")
+      }
+    }
+  }
+
+  // ── package.json extraction ──────────────────────
+
+  extractFromPackageJson(filePath: string, projectDir: string): void {
+    const relPath = relative(projectDir, filePath)
+    if (relPath.split("/").length > 2) return
+
+    let pkg: Record<string, unknown>
+    try { pkg = JSON.parse(readFileSync(filePath, "utf-8")) }
+    catch { return }
+
+    const entrypoints = new Set<string>()
+
+    for (const field of ["main", "module", "types", "typings", "unpkg", "browser"]) {
+      if (typeof pkg[field] === "string") {
+        entrypoints.add(relative(projectDir, join(dirname(filePath), pkg[field] as string)))
+      }
+    }
+
+    if (typeof pkg.exports === "string") {
+      entrypoints.add(relative(projectDir, join(dirname(filePath), pkg.exports as string)))
+    } else if (pkg.exports && typeof pkg.exports === "object") {
+      for (const val of Object.values(pkg.exports as Record<string, unknown>)) {
+        if (typeof val === "string") {
+          entrypoints.add(relative(projectDir, join(dirname(filePath), val)))
+        }
+      }
+    }
+
+    for (const ep of entrypoints) {
+      if (this.nodes.has(ep)) {
+        this.nodes.get(ep)!.exported = true
       }
     }
   }
@@ -398,7 +436,7 @@ export class KnowledgeGraph {
     const lines = [`Connections for "${id}":`]
     for (const { edge, neighbor } of results) {
       const label = showSig && neighbor.signature ? neighbor.signature : neighbor.name
-      lines.push(`  ${edge.type} → ${label} — ${neighbor.type} (${neighbor.file})`)
+      lines.push(`  ${edge.type} → ${label}${this.nodeTags(neighbor)} — ${neighbor.type} (${neighbor.file})`)
     }
     return lines.join("\n")
   }
@@ -431,9 +469,10 @@ export class KnowledgeGraph {
     for (const r of results) {
       const node = r.node
       const label = node && showSig && node.signature ? node.signature : (node?.name ?? r.id)
+      const tags = node ? this.nodeTags(node) : ""
       const type = node?.type ? ` — ${node.type}` : ""
       const file = node?.file ?? ""
-      lines.push(`  ${label}${type} — ${r.degree} connections — ${file}`)
+      lines.push(`  ${label}${tags}${type} — ${r.degree} connections — ${file}`)
     }
     return lines.join("\n")
   }
@@ -483,9 +522,87 @@ export class KnowledgeGraph {
     const lines = [`Found ${results.length} references:`]
     for (const n of results.slice(0, 50)) {
       const label = showSig && n.signature ? n.signature : n.name
-      lines.push(`  ${label} — ${n.type} in ${n.file}`)
+      lines.push(`  ${label}${this.nodeTags(n)} — ${n.type} in ${n.file}`)
     }
     if (results.length > 50) lines.push(`  ... and ${results.length - 50} more`)
+    return lines.join("\n")
+  }
+
+  nodeTags(nodeOrId: GraphNode | string): string {
+    const node = typeof nodeOrId === "string" ? this.nodes.get(nodeOrId) : nodeOrId
+    if (!node || node.type === "file" || node.type === "member") return ""
+
+    const tags: string[] = []
+    if (node.exported === false) tags.push("not exported")
+
+    const incoming = this.edges.filter((e) => e.target === node.id && e.type !== "defines")
+    if (incoming.length === 0 && node.exported === false) tags.push("unreferenced")
+
+    return tags.length > 0 ? ` [${tags.join(", ")}]` : " (exported)"
+  }
+
+  // ── parallel tree detection ─────────────────────
+
+  detectTrees(): Map<string, { label: string; nodeCount: number }> {
+    const adj = new Map<string, Set<string>>()
+    for (const n of this.nodes.keys()) adj.set(n, new Set())
+    for (const e of this.edges) {
+      adj.get(e.source)?.add(e.target)
+      adj.get(e.target)?.add(e.source)
+    }
+
+    const visited = new Set<string>()
+    const trees = new Map<string, { label: string; nodeCount: number }>()
+
+    for (const nodeId of adj.keys()) {
+      if (visited.has(nodeId)) continue
+      const group: string[] = []
+      const queue = [nodeId]
+      visited.add(nodeId)
+      while (queue.length > 0) {
+        const cur = queue.shift()!
+        group.push(cur)
+        for (const nb of adj.get(cur) || []) {
+          if (!visited.has(nb)) { visited.add(nb); queue.push(nb) }
+        }
+      }
+      const firstNonFile = group.map((id) => this.nodes.get(id)).find((n) => n && n.type !== "file")
+      const label = firstNonFile?.file?.split("/")[0] || firstNonFile?.file || group[0]?.split("/")[0] || "unknown"
+      trees.set(label, { label, nodeCount: group.length })
+    }
+    return trees
+  }
+
+  formatFindTree(results: GraphNode[], showSig = false): string {
+    if (results.length === 0) return "No matching references."
+    const trees = this.detectTrees()
+    const byTree = new Map<string, GraphNode[]>()
+
+    for (const r of results) {
+      let assigned = false
+      for (const [label] of trees) {
+        if (r.file.startsWith(label)) {
+          if (!byTree.has(label)) byTree.set(label, [])
+          byTree.get(label)!.push(r)
+          assigned = true
+          break
+        }
+      }
+      if (!assigned) {
+        if (!byTree.has("other")) byTree.set("other", [])
+        byTree.get("other")!.push(r)
+      }
+    }
+
+    const lines: string[] = []
+    for (const [tree, nodes] of byTree) {
+      lines.push(`\n  Tree "${tree}":`)
+      for (const n of nodes.slice(0, 8)) {
+        const label = showSig && n.signature ? n.signature : n.name
+        lines.push(`    ${label}${this.nodeTags(n)} — ${n.type} — ${n.file}`)
+      }
+      if (nodes.length > 8) lines.push(`    ... and ${nodes.length - 8} more`)
+    }
     return lines.join("\n")
   }
 
@@ -529,7 +646,7 @@ export class KnowledgeGraph {
           walk(full)
         } else {
           const ext = extname(entry.name).toLowerCase()
-          if ([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".md", ".mdx"].includes(ext)) files.push(full)
+          if ([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".md", ".mdx", ".json"].includes(ext)) files.push(full)
         }
       }
     }
