@@ -40,18 +40,10 @@ alias rag='bun /path/to/llm-rag/scripts/cli.ts'
 cd my-project
 rag init              # create .rag/ project scope
 rag index             # chunk, embed, index all files
-rag mcp search "..."  # 1. retrieve document chunks
-rag mcp graph "..."   # 2. query knowledge graph
-rag mcp get-document <path>  # 3. read full documents
+rag mcp search "..."  # search indexed content
+rag mcp graph "..."   # query knowledge graph
+rag serve             # start MCP server
 ```
-
-Do NOT use `rag mcp query` — it uses a small local model. Orchestrate `search` + `graph` tools:
-
-1. `rag mcp search "topic"` — find relevant doc chunks
-2. `rag mcp graph find "topic"` — locate entities in graph
-3. `rag mcp graph neighbors <node>` — explore structural connections
-4. `rag mcp get-document <path>` — read full source files
-5. Synthesize with your own reasoning
 
 ## Commands
 
@@ -66,15 +58,13 @@ Do NOT use `rag mcp query` — it uses a small local model. Orchestrate `search`
 
 ### rag mcp tools
 
-Do NOT use `rag mcp query` or `rag mcp query --graph` — they use a small local model. Use these tools instead (search → graph → read → synthesize):
-
 | Tool | Usage | Description |
 |------|-------|-------------|
-| `search` | `rag mcp search "query" [--chunks N] [--limit N]` | Retrieve relevant document chunks |
+| `search` | `rag mcp search "query" [--chunks N] [--limit N]` | Semantic search |
 | `graph` | `rag mcp graph "topic" [--signature] [--limit N]` | Knowledge graph query |
-| `get-document` | `rag mcp get-document <path>` | Read full document content |
-| `list-documents` | `rag mcp list-documents` | List all indexed files |
-| `config` | `rag mcp config` | Print mcp.json for opencode.json adoption |
+| `get-document` | `rag mcp get-document <path>` | Read file content |
+| `list-documents` | `rag mcp list-documents` | List indexed files |
+| `config` | `rag mcp config` | Print opencode.json snippet |
 
 ## Project scope (.rag/)
 
@@ -111,22 +101,18 @@ Register in `opencode.json`:
 }
 ```
 
-The MCP server exposes 10 tools:
+The MCP server exposes 8 tools:
 
-| Tool | Purpose | Best for |
-|------|---------|----------|
-| `search` | Vector search | Retrieving relevant chunks |
-| `graph_find` | Search graph nodes | Finding code entities |
-| `graph_neighbors` | Node connections | Exploring structure |
-| `graph_god_refs` | Core abstractions | Architecture overview |
-| `graph_path` | Shortest path | Tracing relationships |
-| `graph_communities` | List communities | Module discovery |
-| `list_documents` | List indexed files | Discovery |
-| `get_document` | Read file content | Deep reading |
-| `query_with_graph` | **NOT FOR AGENT** — uses small local model | Do not use |
-| `query` | **NOT FOR AGENT** — uses small local model | Do not use |
-
-Call `search` + `graph` tools directly and synthesize with your own reasoning.
+| Tool | Purpose |
+|------|---------|
+| `search` | Vector search |
+| `graph_find` | Search graph nodes |
+| `graph_neighbors` | Node connections |
+| `graph_god_refs` | Core abstractions |
+| `graph_path` | Shortest path |
+| `graph_communities` | List communities |
+| `list_documents` | List indexed files |
+| `get_document` | Read file content |
 
 Run `rag mcp config` from project directory to print the snippet with `cwd` pre-filled.
 
@@ -150,7 +136,6 @@ flowchart LR
 
 - **Vector RAG**: chunks embedded → vector search → top K → LLM synthesis
 - **Knowledge graph**: TS/JS AST and MD headings/links → nodes + edges → structural queries
-- **Agent-driven workflow**: search for chunks → graph find/neighbors for structure → read source → synthesize yourself. This produces higher quality answers than delegating to the local RAG model.
 
 ## Knowledge graph
 
