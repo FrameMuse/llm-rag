@@ -60,8 +60,9 @@ rag mcp graph "..."   # knowledge graph query
 
 | Tool | Usage | Description |
 |------|-------|-------------|
+| `query_with_graph` | `rag mcp query "question" --graph [--chunks N]` | **RAG + knowledge graph merged — recommended for most queries** |
 | `search` | `rag mcp search "query" [--chunks N] [--limit N]` | Semantic vector search |
-| `query` | `rag mcp query "question" [--chunks N] [--temperature N]` | RAG: retrieve chunks, synthesize answer |
+| `query` | `rag mcp query "question" [--chunks N] [--temperature N]` | RAG from document chunks only |
 | `graph` | `rag mcp graph "topic" [--signature] [--limit N]` | Knowledge graph query (see below) |
 | `list-documents` | `rag mcp list-documents` | List all indexed files |
 | `get-document` | `rag mcp get-document <path>` | Show full document content |
@@ -101,6 +102,23 @@ Register in `opencode.json`:
   }
 }
 ```
+
+The MCP server exposes 10 tools to the agent:
+
+| Tool | Best for |
+|------|----------|
+| `query_with_graph` | ⭐ **Most questions. Combines RAG + graph context.** |
+| `search` | Finding specific information by meaning |
+| `query` | RAG when graph is not needed |
+| `graph_find` | Searching graph nodes |
+| `graph_neighbors` | Exploring connections with dir/type filters |
+| `graph_god_refs` | Finding core abstractions |
+| `graph_path` | Tracing structural paths |
+| `graph_communities` | Discovering module groups |
+| `list_documents` | Listing indexed files |
+| `get_document` | Reading file content |
+
+**Start with `query_with_graph`** for most queries — it retrieves both document chunks and structural graph context, then synthesizes them into a single answer.
 
 Run `rag mcp config` from project directory to print the snippet with `cwd` pre-filled.
 
