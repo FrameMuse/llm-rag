@@ -40,10 +40,12 @@ alias rag='bun /path/to/llm-rag/scripts/cli.ts'
 cd my-project
 rag init              # create .rag/ project scope
 rag index             # chunk, embed, index all files
-rag mcp search "..."  # semantic search
-rag mcp query "..."   # RAG: synthesize answer from docs
-rag mcp graph "..."   # knowledge graph query
+rag mcp search "..."  # retrieve document chunks
+rag mcp graph "..."   # query knowledge graph
+rag mcp get-document <path>  # read full documents
 ```
+
+`rag mcp query` uses a small local model (llama3.2:3b). For best results, orchestrate `search` + `graph` tools yourself and synthesize answers with your own reasoning. `rag mcp query "question" --graph` is available as a fast single-call option.
 
 ## Commands
 
@@ -58,14 +60,16 @@ rag mcp graph "..."   # knowledge graph query
 
 ### rag mcp tools
 
+`rag mcp query` uses a small local model (llama3.2:3b). For best results, orchestrate tools yourself:
+
 | Tool | Usage | Description |
 |------|-------|-------------|
-| `query_with_graph` | `rag mcp query "question" --graph [--chunks N]` | **RAG + knowledge graph merged — recommended for most queries** |
-| `search` | `rag mcp search "query" [--chunks N] [--limit N]` | Semantic vector search |
+| `search` | `rag mcp search "query" [--chunks N] [--limit N]` | Retrieve relevant document chunks |
+| `graph` | `rag mcp graph "topic" [--signature] [--limit N]` | Knowledge graph query |
+| `get-document` | `rag mcp get-document <path>` | Read full document content |
 | `query` | `rag mcp query "question" [--chunks N] [--temperature N]` | RAG from document chunks only |
-| `graph` | `rag mcp graph "topic" [--signature] [--limit N]` | Knowledge graph query (see below) |
+| `query_with_graph` | `rag mcp query "question" --graph [--chunks N]` | RAG + graph combined (local synthesis) |
 | `list-documents` | `rag mcp list-documents` | List all indexed files |
-| `get-document` | `rag mcp get-document <path>` | Show full document content |
 | `config` | `rag mcp config` | Print mcp.json for opencode.json adoption |
 
 ## Project scope (.rag/)
@@ -103,22 +107,24 @@ Register in `opencode.json`:
 }
 ```
 
-The MCP server exposes 10 tools to the agent:
+The MCP server exposes 10 tools:
 
-| Tool | Best for |
-|------|----------|
-| `query_with_graph` | ⭐ **Most questions. Combines RAG + graph context.** |
-| `search` | Finding specific information by meaning |
-| `query` | RAG when graph is not needed |
-| `graph_find` | Searching graph nodes |
-| `graph_neighbors` | Exploring connections with dir/type filters |
-| `graph_god_refs` | Finding core abstractions |
-| `graph_path` | Tracing structural paths |
-| `graph_communities` | Discovering module groups |
-| `list_documents` | Listing indexed files |
-| `get_document` | Reading file content |
+| Tool | Purpose | Best for |
+|------|---------|----------|
+| `search` | Vector search | Retrieving relevant chunks |
+| `graph_find` | Search graph nodes | Finding code entities |
+| `graph_neighbors` | Node connections | Exploring structure |
+| `graph_god_refs` | Core abstractions | Architecture overview |
+| `graph_path` | Shortest path | Tracing relationships |
+| `graph_communities` | List communities | Module discovery |
+| `query_with_graph` | RAG + graph combined | Fast single-call answer |
+| `query` | RAG from chunks | Fallback when graph unavailable |
+| `list_documents` | List indexed files | Discovery |
+| `get_document` | Read file content | Deep reading |
 
-**Start with `query_with_graph`** for most queries — it retrieves both document chunks and structural graph context, then synthesizes them into a single answer.
+**Recommended strategy:** orchestrate `search` + `graph` tools yourself using your own reasoning for synthesis. This produces higher quality answers than the local RAG model.
+
+For convenience, `query_with_graph` provides a single-call answer combining search + graph + local synthesis.
 
 Run `rag mcp config` from project directory to print the snippet with `cwd` pre-filled.
 
@@ -142,7 +148,8 @@ flowchart LR
 
 - **Vector RAG**: chunks embedded → vector search → top K → LLM synthesis
 - **Knowledge graph**: TS/JS AST and MD headings/links → nodes + edges → structural queries
-- **Hybrid**: `rag mcp query` uses vector RAG; `rag mcp graph` uses the graph; both can be combined for richer answers
+- **Agent-driven**: orchestrate `search` + `graph` tools yourself for best results
+- **Single-call**: `query_with_graph` for fast combined answers using local synthesis
 
 ## Knowledge graph
 
