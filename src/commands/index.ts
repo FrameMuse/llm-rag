@@ -6,7 +6,7 @@ import { ensureModel, embed, embedBatch } from "../core/embedder"
 import { initStore, createTableFromRecords, addChunks, deleteChunksForFile, createFtsIndex, chunkToRecord, openTable, dbPath } from "../core/store"
 import { getIgnoredFiles } from "../utils/watch"
 import { ProgressBar } from "../utils/output"
-import { relative } from "path"
+import { relative, basename, extname } from "path"
 import { createHash } from "crypto"
 
 function chunkId(filePath: string, heading: string): string {
@@ -149,8 +149,10 @@ async function processImage(
   const caption = await describeImage(filePath, config.visionModel, projectDir)
   if (!caption) return null
 
-  const id = chunkId(relPath, "__image__")
-  const content = `[${relPath} > image]\n${caption}`
+  const stem = basename(relPath, extname(relPath)).replace(/[_-]/g, " ")
+  const heading = stem.charAt(0).toUpperCase() + stem.slice(1)
+  const id = chunkId(relPath, heading)
+  const content = `[${relPath} > ${heading}]\n${caption}`
   const tokens = Math.ceil(caption.length / 3)
 
   const vec = await embed(content, config.embedModel)
@@ -158,7 +160,7 @@ async function processImage(
     id,
     collection: config.name,
     filePath: relPath,
-    heading: "__image__",
+    heading,
     parentHeading: "",
     content,
     tokens,
