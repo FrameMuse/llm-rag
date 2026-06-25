@@ -43,8 +43,8 @@ export function buildGraph(ragDir: string, config: import("../core/config").RagC
 
 export async function graphMcpCommand(args: string[]): Promise<void> {
   const ragDir = requireRagDir()
-  const config = readConfig(ragDir)
-  const projectDir = getProjectDir(ragDir)
+  const _config = readConfig(ragDir)
+  const _projectDir = getProjectDir(ragDir)
 
   const g = loadGraph(ragDir)
   if (!g) {
@@ -61,9 +61,14 @@ Subcommands:
     --dir in|out|both     Direction (default: both)
     --type <edgeType>     Filter by edge type
   path <from> <to>        Find shortest path
-  hubs [--limit N]        Show most connected nodes
+  god-nodes [--limit N]   Most connected core abstractions
+  hubs [--limit N]        Alias for god-nodes
   find <text>             Search nodes by name
   list                    Show node/edge counts
+  communities             List all communities
+  community <id>          Show nodes in a community
+  surprises [--limit N]   Cross-community surprising connections
+  cycles                  Detect import cycles
   help                    Show this help`)
     return
   }
@@ -101,11 +106,12 @@ Subcommands:
       break
     }
 
+    case "god-nodes":
     case "hubs": {
       const limitIdx = args.indexOf("--limit")
       const limit = limitIdx > 0 ? parseInt(args[limitIdx + 1], 10) || 10 : 10
-      const hubs = g.hubs(limit)
-      console.log(g.formatHubs(hubs))
+      const results = g.godNodes(limit)
+      console.log(g.formatGodNodes(results))
       break
     }
 
@@ -120,8 +126,45 @@ Subcommands:
       break
     }
 
+    case "communities": {
+      const communities = g.detectCommunities()
+      console.log(g.formatCommunities(communities))
+      break
+    }
+
+    case "community": {
+      const id = parseInt(args[1], 10)
+      if (isNaN(id)) {
+        console.log("Usage: rag mcp graph community <id>")
+        return
+      }
+      const communities = g.detectCommunities()
+      const c = communities.get(id)
+      if (!c) {
+        console.log(`Community ${id} not found.`)
+        return
+      }
+      const nodes = g.communityNodes(id, communities)
+      console.log(g.formatCommunityDetail(id, c.label, nodes))
+      break
+    }
+
+    case "surprises": {
+      const limitIdx = args.indexOf("--limit")
+      const limit = limitIdx > 0 ? parseInt(args[limitIdx + 1], 10) || 10 : 10
+      const results = g.surprisingConnections(limit)
+      console.log(g.formatSurprises(results))
+      break
+    }
+
+    case "cycles": {
+      const cycles = g.findImportCycles()
+      console.log(g.formatCycles(cycles))
+      break
+    }
+
     default:
       console.log(`Unknown graph subcommand: ${sub}`)
-      console.log("Available: list, neighbors, path, hubs, find")
+      console.log("Available: list, neighbors, path, god-nodes, hubs, find, communities, community, surprises, cycles")
   }
 }

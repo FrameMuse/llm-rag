@@ -21,15 +21,19 @@ CLI proxy tools (rag mcp):
   query <question>        RAG: ask a question, get synthesized answer
   list-documents          List all indexed documents
   get-document <path>     Get full content of a document
-  graph <subcommand>      Knowledge graph queries (neighbors, path, hubs, find, list)
+  graph <subcommand>      Knowledge graph queries (god-nodes, communities, cycles, surprises)
 `)
 
-  console.log(`Graph subcommands (rag mcp graph):
-  neighbors <node> [--dir in|out|both] [--type <type>]
-  path <from> <to>
-  hubs [--limit N]
-  find <text>
-  list`)
+  god-nodes [--limit N]   Core abstractions (most connected non-file nodes)
+  hubs [--limit N]        Alias for god-nodes
+  communities             List all communities
+  community <id>          Show nodes in a community
+  surprises [--limit N]   Cross-community connections
+  cycles                  Import cycle detection
+  neighbors <node>        Show connections
+  path <from> <to>        Shortest path
+  find <text>             Search nodes
+  list                    Node/edge counts`)
 }
 
 async function main() {
