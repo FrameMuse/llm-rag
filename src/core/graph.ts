@@ -416,8 +416,8 @@ export class KnowledgeGraph {
   }
 
   formatGodNodes(results: { id: string; degree: number; node: GraphNode | undefined }[]): string {
-    if (results.length === 0) return "No god nodes found."
-    const lines = ["God nodes (core abstractions):"]
+    if (results.length === 0) return "No god references found."
+    const lines = ["God references (core abstractions):"]
     for (const r of results) {
       const name = r.node?.name ?? r.id
       const file = r.node?.file ?? ""
@@ -442,14 +442,14 @@ export class KnowledgeGraph {
     if (communities.size === 0) return "No communities found."
     const lines = [`Communities (${communities.size}):`]
     for (const [cid, c] of communities) {
-      lines.push(`  ${cid}. "${c.label}" — ${c.nodeCount} nodes`)
+      lines.push(`  ${cid}. "${c.label}" — ${c.nodeCount} refs`)
     }
     return lines.join("\n")
   }
 
   formatCommunityDetail(id: number, label: string, nodes: { name: string; type: string; file: string }[]): string {
     if (nodes.length === 0) return `Community ${id} not found.`
-    const lines = [`Community ${id} — "${label}" (${nodes.length} nodes):`]
+    const lines = [`Community ${id} — "${label}" (${nodes.length} refs):`]
     for (const n of nodes) {
       lines.push(`  ${n.name} — ${n.type} — ${n.file}`)
     }
@@ -467,8 +467,8 @@ export class KnowledgeGraph {
   }
 
   formatFind(results: GraphNode[]): string {
-    if (results.length === 0) return "No matching nodes."
-    const lines = [`Found ${results.length} nodes:`]
+    if (results.length === 0) return "No matching references."
+    const lines = [`Found ${results.length} references:`]
     for (const n of results.slice(0, 50)) {
       lines.push(`  ${n.name} — ${n.type} in ${n.file}`)
     }
@@ -477,7 +477,7 @@ export class KnowledgeGraph {
   }
 
   formatList(): string {
-    return `Nodes: ${this.nodes.size}\nEdges: ${this.edges.length}`
+    return `References: ${this.nodes.size}\nEdges: ${this.edges.length}`
   }
 
   // ── persistence ───────────────────────────────────

@@ -30,7 +30,7 @@ export async function buildGraphCommand(): Promise<void> {
   g.extractFromProject(projectDir, config.pattern)
   const dataDir = getDataDir(ragDir)
   g.save(graphPath(dataDir))
-  console.log(`  Nodes: ${g.nodes.size}`)
+  console.log(`  Refs: ${g.nodes.size}`)
   console.log(`  Edges: ${g.edges.length}`)
 }
 
@@ -61,8 +61,8 @@ Subcommands:
     --dir in|out|both     Direction (default: both)
     --type <edgeType>     Filter by edge type
   path <from> <to>        Find shortest path
-  god-nodes [--limit N]   Most connected core abstractions
-  hubs [--limit N]        Alias for god-nodes
+  god-refs [--limit N]    Most connected core abstractions
+  hubs [--limit N]        Alias for god-refs
   find <text>             Search nodes by name
   list                    Show node/edge counts
   communities             List all communities
@@ -106,6 +106,7 @@ Subcommands:
       break
     }
 
+    case "god-refs":
     case "god-nodes":
     case "hubs": {
       const limitIdx = args.indexOf("--limit")
@@ -165,6 +166,6 @@ Subcommands:
 
     default:
       console.log(`Unknown graph subcommand: ${sub}`)
-      console.log("Available: list, neighbors, path, god-nodes, hubs, find, communities, community, surprises, cycles")
+      console.log("Available: list, neighbors, path, god-refs, hubs, find, communities, community, surprises, cycles")
   }
 }

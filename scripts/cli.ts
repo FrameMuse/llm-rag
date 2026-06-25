@@ -21,11 +21,11 @@ CLI proxy tools (rag mcp):
   query <question>        RAG: ask a question, get synthesized answer
   list-documents          List all indexed documents
   get-document <path>     Get full content of a document
-  graph <subcommand>      Knowledge graph queries (god-nodes, communities, cycles, surprises)
+  graph <subcommand>      Knowledge graph queries (god-refs, communities, cycles, surprises)
 
 Graph subcommands (rag mcp graph):
-  god-nodes [--limit N]   Core abstractions (most connected non-file nodes)
-  hubs [--limit N]        Alias for god-nodes
+  god-refs [--limit N]    Core abstractions (most connected non-file references)
+  hubs [--limit N]        Alias for god-refs
   communities             List all communities
   community <id>          Show nodes in a community
   surprises [--limit N]   Cross-community connections
