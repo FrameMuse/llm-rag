@@ -18,7 +18,7 @@ export async function startMcpServer(ragDir: string): Promise<void> {
 
   const server = new McpServer({ name: "rag", version: "0.1.0" })
 
-  // ── existing tools ────────────────────────────
+  // ── tools ────────────────────────────────────
 
   server.registerTool(
     "search",
@@ -35,45 +35,6 @@ export async function startMcpServer(ragDir: string): Promise<void> {
     },
     async ({ query, limit }: { query: string; limit?: number }) => {
       const result = await handlers.handleSearch(ragDir, projectDir, config, query, limit ?? 10)
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] }
-    },
-  )
-
-  server.registerTool(
-    "query",
-    {
-      description: `Ask a question about ${config.name} and get a synthesized answer from document chunks`,
-      inputSchema: fromJsonSchema({
-        type: "object",
-        properties: {
-          question: { type: "string", description: "Your question" },
-        },
-        required: ["question"],
-      }),
-    },
-    async ({ question }: { question: string }) => {
-      const result = await handlers.handleQuery(ragDir, projectDir, config, question)
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] }
-    },
-  )
-
-  server.registerTool(
-    "query_with_graph",
-    {
-      description: `Ask a question and get an answer synthesized from both document chunks and the knowledge graph context`,
-      inputSchema: fromJsonSchema({
-        type: "object",
-        properties: {
-          question: { type: "string", description: "Your question" },
-          chunks: { type: "number", description: "Number of chunks to retrieve (default 8)" },
-        },
-        required: ["question"],
-      }),
-    },
-    async ({ question, chunks }: { question: string; chunks?: number }) => {
-      const opts: { graph: boolean; chunks?: number } = { graph: true }
-      if (chunks) opts.chunks = chunks
-      const result = await handlers.handleQuery(ragDir, projectDir, config, question, opts)
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] }
     },
   )
