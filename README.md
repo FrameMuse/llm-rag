@@ -45,7 +45,13 @@ rag mcp graph "..."   # 2. query knowledge graph
 rag mcp get-document <path>  # 3. read full documents
 ```
 
-Do NOT use `rag mcp query` — it uses a small local model. Orchestrate `search` + `graph` tools directly and synthesize with your own reasoning.
+Do NOT use `rag mcp query` — it uses a small local model. Orchestrate `search` + `graph` tools:
+
+1. `rag mcp search "topic"` — find relevant doc chunks
+2. `rag mcp graph find "topic"` — locate entities in graph
+3. `rag mcp graph neighbors <node>` — explore structural connections
+4. `rag mcp get-document <path>` — read full source files
+5. Synthesize with your own reasoning
 
 ## Commands
 
@@ -60,7 +66,7 @@ Do NOT use `rag mcp query` — it uses a small local model. Orchestrate `search`
 
 ### rag mcp tools
 
-Do NOT use `rag mcp query` or `rag mcp query --graph` — they use a small local model that produces lower quality answers. Use these tools instead:
+Do NOT use `rag mcp query` or `rag mcp query --graph` — they use a small local model. Use these tools instead (search → graph → read → synthesize):
 
 | Tool | Usage | Description |
 |------|-------|-------------|
@@ -144,8 +150,7 @@ flowchart LR
 
 - **Vector RAG**: chunks embedded → vector search → top K → LLM synthesis
 - **Knowledge graph**: TS/JS AST and MD headings/links → nodes + edges → structural queries
-- **Agent-driven**: orchestrate `search` + `graph` tools yourself for best results
-- **Single-call**: `query_with_graph` for fast combined answers using local synthesis
+- **Agent-driven workflow**: search for chunks → graph find/neighbors for structure → read source → synthesize yourself. This produces higher quality answers than delegating to the local RAG model.
 
 ## Knowledge graph
 
