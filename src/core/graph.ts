@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, existsSync, writeFileSync } from "fs"
 import { join, relative, extname } from "path"
 import ts from "typescript"
+import matter from "gray-matter"
 
 export interface GraphNode {
   id: string
@@ -35,6 +36,7 @@ export class KnowledgeGraph {
 
   extractFromFile(filePath: string, projectDir: string): void {
     const ext = extname(filePath).toLowerCase()
+    if ([".md", ".mdx"].includes(ext)) return this.extractFromMdFile(filePath, projectDir)
     if (![".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"].includes(ext)) return
 
     const relPath = relative(projectDir, filePath)
@@ -101,6 +103,56 @@ export class KnowledgeGraph {
     const files = this.walkFiles(projectDir, pattern)
     for (const f of files) {
       this.extractFromFile(f, projectDir)
+    }
+  }
+
+  // ── markdown extraction ──────────────────────────
+
+  extractFromMdFile(filePath: string, projectDir: string): void {
+    const relPath = relative(projectDir, filePath)
+    const sourceText = readFileSync(filePath, "utf-8").trim()
+    if (sourceText.length < 50) return
+
+    this.addNode(relPath, "file", relPath, relPath)
+
+    const parsed = matter(sourceText)
+    const docTitle = parsed.data?.title || relPath
+    const content = parsed.content
+
+    const seenHeadings = new Set<string>()
+
+    if (docTitle !== relPath) {
+      this.addNode(`${relPath}::__doc__`, "heading", relPath, docTitle)
+      this.addEdge(relPath, `${relPath}::__doc__`, "contains")
+      seenHeadings.add(docTitle.toLowerCase())
+    }
+
+    // Parse headings (h1, h2, h3)
+    const headingRe = /^(#{1,3})\s+(.+)$/gm
+    let match: RegExpExecArray | null
+    let lastH2: string | null = null
+
+    while ((match = headingRe.exec(content)) !== null) {
+      const level = match[1].length
+      const text = match[2].trim()
+      if (text.length < 3 || seenHeadings.has(text.toLowerCase())) continue
+
+      const headingId = `${relPath}::${text}`
+      this.addNode(headingId, "heading", relPath, text)
+      this.addEdge(relPath, headingId, "contains")
+      seenHeadings.add(text.toLowerCase())
+
+      if (level === 2) lastH2 = text
+    }
+
+    // Parse markdown links
+    const linkRe = /\[([^\]]+)\]\(([^)]+)\)/g
+    while ((match = linkRe.exec(content)) !== null) {
+      const href = match[2].split("#")[0].split("?")[0]
+      if (!href || href.startsWith("http")) continue
+      if (href.endsWith(".md") || href.endsWith(".mdx")) {
+        this.addEdge(relPath, href, "imports")
+      }
     }
   }
 
@@ -464,7 +516,7 @@ export class KnowledgeGraph {
           walk(full)
         } else {
           const ext = extname(entry.name).toLowerCase()
-          if ([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"].includes(ext)) files.push(full)
+          if ([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".md", ".mdx"].includes(ext)) files.push(full)
         }
       }
     }

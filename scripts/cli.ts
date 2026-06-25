@@ -22,8 +22,8 @@ CLI proxy tools (rag mcp):
   list-documents          List all indexed documents
   get-document <path>     Get full content of a document
   graph <subcommand>      Knowledge graph queries (god-nodes, communities, cycles, surprises)
-`)
 
+Graph subcommands (rag mcp graph):
   god-nodes [--limit N]   Core abstractions (most connected non-file nodes)
   hubs [--limit N]        Alias for god-nodes
   communities             List all communities
@@ -33,7 +33,8 @@ CLI proxy tools (rag mcp):
   neighbors <node>        Show connections
   path <from> <to>        Shortest path
   find <text>             Search nodes
-  list                    Node/edge counts`)
+  list                    Node/edge counts
+`)
 }
 
 async function main() {
